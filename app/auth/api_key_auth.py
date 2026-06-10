@@ -19,10 +19,12 @@ def get_current_application(
     Raises 401 if key is missing or invalid.
     Raises 403 if application is inactive.
     """
-    api_key = credentials.credentials
+    from app.auth.hash import hash_api_key
+    raw_api_key = credentials.credentials
+    api_key_hash = hash_api_key(raw_api_key)
 
     app = db.query(Application).filter(
-        Application.api_key == api_key
+        Application.api_key_hash == api_key_hash
     ).first()
 
     if not app:

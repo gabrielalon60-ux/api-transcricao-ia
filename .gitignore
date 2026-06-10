@@ -22,6 +22,7 @@ wheels/
 
 # Virtual env
 .env
+.env.*
 .venv
 env/
 venv/
@@ -43,3 +44,4 @@ logs/
 # OS
 .DS_Store
 Thumbs.db
+*.db

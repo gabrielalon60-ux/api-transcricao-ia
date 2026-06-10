@@ -11,16 +11,18 @@ class UsageService:
     def __init__(self, db: Session):
         self.db = db
 
-    def get_usage_summary(self) -> UsageResponse:
-        """Aggregate token usage and costs across all applications."""
+    def get_usage_summary(self, application_id: str) -> UsageResponse:
+        """Aggregate token usage and costs for a specific application."""
 
-        # Global totals
-        totals = self.db.query(
+        # Global totals for this app
+        totals_query = self.db.query(
             func.count(UsageLog.id).label("total_requests"),
             func.coalesce(func.sum(UsageLog.input_tokens), 0).label("total_input_tokens"),
             func.coalesce(func.sum(UsageLog.output_tokens), 0).label("total_output_tokens"),
             func.coalesce(func.sum(UsageLog.estimated_cost), 0.0).label("total_cost"),
-        ).one()
+        ).join(Request, Request.id == UsageLog.request_id).filter(Request.application_id == application_id)
+        
+        totals = totals_query.one()
 
         summary = UsageSummary(
             total_requests=totals.total_requests,
@@ -29,7 +31,7 @@ class UsageService:
             total_cost=float(totals.total_cost),
         )
 
-        # Per-application breakdown
+        # Per-application breakdown (only the current one)
         per_app_rows = (
             self.db.query(
                 Application.id.label("application_id"),
@@ -41,6 +43,7 @@ class UsageService:
             )
             .join(Request, Request.id == UsageLog.request_id)
             .join(Application, Application.id == Request.application_id)
+            .filter(Application.id == application_id)
             .group_by(Application.id, Application.name)
             .all()
         )

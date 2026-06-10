@@ -9,9 +9,9 @@ from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 
-# Gemini pricing per 1M tokens (gemini-1.5-flash, as of mid-2024 — update as needed)
-GEMINI_INPUT_COST_PER_1M = 0.35   # USD
-GEMINI_OUTPUT_COST_PER_1M = 1.05  # USD
+# Gemini pricing per 1M tokens (gemini-2.0-flash-lite, as of 2025)
+GEMINI_INPUT_COST_PER_1M = 0.075  # USD
+GEMINI_OUTPUT_COST_PER_1M = 0.30  # USD
 
 SYSTEM_INSTRUCTION = """You will receive an image and an extraction request.
 

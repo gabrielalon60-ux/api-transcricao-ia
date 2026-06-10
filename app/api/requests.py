@@ -4,8 +4,9 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 from app.database.session import get_db
-from app.database.models import Request, RequestStatus
+from app.database.models import Request, RequestStatus, Application
 from app.schemas.requests import RequestOut, RequestListResponse
+from app.auth.api_key_auth import get_current_application
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -26,12 +27,11 @@ def list_requests(
     date_to: Optional[datetime] = Query(None, description="Filter requests created before this date (ISO 8601)."),
     limit: int = Query(50, ge=1, le=500),
     offset: int = Query(0, ge=0),
+    current_app: Application = Depends(get_current_application),
     db: Session = Depends(get_db),
 ):
-    query = db.query(Request)
+    query = db.query(Request).filter(Request.application_id == current_app.id)
 
-    if application_id:
-        query = query.filter(Request.application_id == application_id)
     if status:
         query = query.filter(Request.status == status)
     if date_from:

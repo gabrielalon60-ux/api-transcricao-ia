@@ -63,7 +63,18 @@ async def extract(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=str(exc),
         )
-    except Exception:
+    except Exception as exc:
+        exc_str = str(exc)
+        if "503" in exc_str or "UNAVAILABLE" in exc_str or "high demand" in exc_str:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="AI provider is currently unavailable due to high demand. Please try again in a few seconds.",
+            )
+        if "429" in exc_str or "RESOURCE_EXHAUSTED" in exc_str or "quota" in exc_str.lower():
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="AI provider quota exceeded. Please check your API plan and billing, or try again later.",
+            )
         logger.exception("Unhandled error during extraction.")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

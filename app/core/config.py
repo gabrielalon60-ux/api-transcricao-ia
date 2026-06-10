@@ -7,11 +7,11 @@ class Settings(BaseSettings):
     database_url: str
 
     # AI Providers
-    gemini_api_key: str = ""
-    gemini_model: str = "gemini-2.5-flash"
+    gemini_api_key: str
+    gemini_model: str = "gemini-2.5-flash-lite"
 
     # App
-    app_env: str = "development"
+    app_env: str = "production"
     app_debug: bool = False
     log_level: str = "INFO"
 
@@ -23,4 +23,4 @@ class Settings(BaseSettings):
 
 @lru_cache()
 def get_settings() -> Settings:
-    return Settings(**{})  # type: ignore[call-arg]
+    return Settings()

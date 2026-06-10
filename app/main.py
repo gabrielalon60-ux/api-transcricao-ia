@@ -7,7 +7,7 @@ from app.core.config import get_settings
 from app.database.session import get_engine
 from app.database import models
 
-from app.api import extract, requests, usage, applications
+from app.api import extract, requests, usage
 
 
 @asynccontextmanager
@@ -46,7 +46,6 @@ app.add_middleware(
 app.include_router(extract.router)
 app.include_router(requests.router)
 app.include_router(usage.router)
-app.include_router(applications.router)
 
 
 @app.get("/health", tags=["Health"])

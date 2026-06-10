@@ -31,17 +31,13 @@ Swagger UI: http://localhost:8000/docs
 
 ## Usage
 
-### Register an application
+### Application Management
 
-```http
-POST /applications
-Content-Type: application/json
+Applications and API keys are managed securely via the database.
 
-{
-  "name": "My App",
-  "api_key": "APP_MYAPP_123456789"
-}
-```
+1. Generate a new API key locally: `python scripts/generate_api_key.py`
+2. Insert the application manually into Supabase, using the SHA-256 hash.
+3. Deliver the raw API key to the customer. It cannot be recovered.
 
 ### Extract data from an image
 
@@ -77,9 +73,6 @@ Response:
 | `POST` | `/extract` | Extract structured data from image |
 | `GET` | `/requests` | List request history (filterable) |
 | `GET` | `/usage` | Token usage and cost statistics |
-| `GET` | `/applications` | List registered applications |
-| `POST` | `/applications` | Register new application |
-| `PATCH` | `/applications/{id}/deactivate` | Deactivate application |
 | `GET` | `/health` | Health check |
 
 ---
@@ -92,8 +85,7 @@ app/
 ├── api/
 │   ├── extract.py
 │   ├── requests.py
-│   ├── usage.py
-│   └── applications.py
+│   └── usage.py
 ├── services/
 │   ├── ai/
 │   │   ├── provider.py         ← Abstract AIProvider
@@ -108,7 +100,6 @@ app/
 │   └── api_key_auth.py
 ├── schemas/
 │   ├── requests.py
-│   ├── applications.py
 │   └── usage.py
 ├── core/
 │   ├── config.py
