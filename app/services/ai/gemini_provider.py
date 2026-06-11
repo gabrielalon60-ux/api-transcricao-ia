@@ -1,5 +1,6 @@
 import asyncio
 import json
+import os
 import re
 from google import genai
 from google.genai import types as genai_types
@@ -33,7 +34,7 @@ class GeminiProvider(AIProvider):
     def __init__(self):
         settings = get_settings()
         self.client = genai.Client(api_key=settings.gemini_api_key)
-        self.model_name = settings.gemini_model
+        self.model_name = os.getenv("GEMINI_MODEL", "gemini-3.1-flash-lite")
         logger.info(f"GeminiProvider initialized with model: {self.model_name}")
 
     async def extract(self, image_bytes: bytes, prompt: str) -> ExtractionResult:
