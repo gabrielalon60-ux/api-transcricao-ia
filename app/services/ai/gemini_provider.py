@@ -7,25 +7,13 @@ from google.genai import types as genai_types
 from app.services.ai.provider import AIProvider, ExtractionResult
 from app.core.config import get_settings
 from app.core.logging import get_logger
+from app.services.prompt_service import PromptService
 
 logger = get_logger(__name__)
 
 # Gemini pricing per 1M tokens (gemini-2.0-flash-lite, as of 2025)
 GEMINI_INPUT_COST_PER_1M = 0.075  # USD
 GEMINI_OUTPUT_COST_PER_1M = 0.30  # USD
-
-SYSTEM_INSTRUCTION = """You will receive an image and an extraction request.
-
-Analyze the image carefully.
-
-Extract only the information explicitly requested.
-
-Return valid JSON only.
-
-Do not provide explanations.
-Do not return markdown.
-Do not include additional text.
-If a field cannot be found in the image, return null for that field."""
 
 
 class GeminiProvider(AIProvider):
@@ -35,10 +23,11 @@ class GeminiProvider(AIProvider):
         settings = get_settings()
         self.client = genai.Client(api_key=settings.gemini_api_key)
         self.model_name = os.getenv("GEMINI_MODEL", "gemini-3.1-flash-lite")
+        self.system_instruction = PromptService.load_prompt()
         logger.info(f"GeminiProvider initialized with model: {self.model_name}")
 
-    async def extract(self, image_bytes: bytes, prompt: str) -> ExtractionResult:
-        """Send image + prompt to Gemini. Parse JSON response."""
+    async def extract(self, image_bytes: bytes) -> ExtractionResult:
+        """Send image to Gemini. Parse JSON response."""
         logger.info(f"Sending extraction request to Gemini ({self.model_name}).")
 
         # Detect image MIME type from magic bytes
@@ -46,12 +35,11 @@ class GeminiProvider(AIProvider):
 
         # Build content parts using new google-genai SDK
         image_part = genai_types.Part.from_bytes(data=image_bytes, mime_type=mime_type)
-        text_part = genai_types.Part.from_text(text=prompt)
 
-        contents = [genai_types.Content(parts=[image_part, text_part], role="user")]
+        contents = [genai_types.Content(parts=[image_part], role="user")]
 
         config = genai_types.GenerateContentConfig(
-            system_instruction=SYSTEM_INSTRUCTION,
+            system_instruction=self.system_instruction,
             response_mime_type="application/json",
         )
 

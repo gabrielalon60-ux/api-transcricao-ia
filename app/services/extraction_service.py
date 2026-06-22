@@ -18,7 +18,6 @@ class ExtractionService:
         self,
         application_id: uuid.UUID,
         image_bytes: bytes,
-        prompt: str,
         image_filename: str | None = None,
     ) -> tuple[uuid.UUID, dict]:
         """
@@ -47,14 +46,14 @@ class ExtractionService:
         start_ms = time.monotonic()
         try:
             # Step 3 — Call AI
-            result = await self.ai_provider.extract(image_bytes, prompt)
+            result = await self.ai_provider.extract(image_bytes)
 
             elapsed_ms = int((time.monotonic() - start_ms) * 1000)
 
             # Step 4 — Persist Extraction
             extraction = Extraction(
                 request_id=request_id,
-                prompt=prompt,
+                prompt="externalized",
                 response_json=result.data,
                 image_reference=image_filename,
             )

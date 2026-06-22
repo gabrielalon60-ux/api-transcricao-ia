@@ -26,13 +26,12 @@ def _get_ai_provider() -> AIProvider:
     response_model=ExtractionResponse,
     summary="Extract structured data from an image",
     description=(
-        "Submit an image file and a plain-text extraction prompt. "
-        "The AI analyzes the image and returns a JSON object with the requested fields."
+        "Submit an image file. "
+        "The AI analyzes the image and returns a JSON object with the fields defined in the system prompt."
     ),
 )
 async def extract(
     file: UploadFile = File(..., description="Image file to analyze (JPEG, PNG, WEBP, PDF)."),
-    prompt: str = Form(..., description="Extraction instructions, e.g. 'Extract full name, CPF, and total amount'."),
     current_app: Application = Depends(get_current_application),
     db: Session = Depends(get_db),
 ):
@@ -55,7 +54,6 @@ async def extract(
         request_id, data = await service.process(
             application_id=current_app.id,
             image_bytes=image_bytes,
-            prompt=prompt,
             image_filename=file.filename,
         )
     except ValueError as exc:

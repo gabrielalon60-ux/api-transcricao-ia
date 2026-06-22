@@ -20,13 +20,12 @@ class AIProvider(ABC):
     """
 
     @abstractmethod
-    async def extract(self, image_bytes: bytes, prompt: str) -> ExtractionResult:
+    async def extract(self, image_bytes: bytes) -> ExtractionResult:
         """
         Analyze the image and extract information based on the prompt.
 
         Args:
             image_bytes: Raw image bytes.
-            prompt: User-defined extraction instructions.
 
         Returns:
             ExtractionResult with parsed JSON data and token usage.
