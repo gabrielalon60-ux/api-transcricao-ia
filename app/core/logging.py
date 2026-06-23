@@ -24,3 +24,15 @@ def setup_logging() -> None:
 
 def get_logger(name: str) -> logging.Logger:
     return logging.getLogger(name)
+
+
+def sanitize_log_value(value: str | None) -> str:
+    """
+    Strips newlines and carriage returns from user-controlled strings before logging.
+    Prevents log injection attacks where attackers forge log lines via filenames
+    or other user-supplied values.
+    """
+    if not value:
+        return ""
+    return value.replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t")
+

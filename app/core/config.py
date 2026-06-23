@@ -10,6 +10,10 @@ class Settings(BaseSettings):
     gemini_api_key: str
     gemini_model: str = "gemini-2.5-flash-lite"
 
+    # Security
+    api_key_hash_secret: str  # Required: HMAC secret for API key hashing
+    max_upload_size_mb: int = 10  # Max file upload size in MB
+
     # App
     app_env: str = "production"
     app_debug: bool = False

@@ -8,7 +8,8 @@ from app.services.extraction_service import ExtractionService
 from app.services.ai.gemini_provider import GeminiProvider
 from app.services.ai.provider import AIProvider
 from app.schemas.requests import ExtractionResponse
-from app.core.logging import get_logger
+from app.core.logging import get_logger, sanitize_log_value
+from app.core.config import get_settings
 
 logger = get_logger(__name__)
 
@@ -36,8 +37,9 @@ async def extract(
     db: Session = Depends(get_db),
 ):
     logger.info(
-        f"POST /extract | app='{current_app.name}' | file='{file.filename}' | "
-        f"content_type='{file.content_type}'"
+        f"POST /extract | app='{current_app.name}' | "
+        f"file='{sanitize_log_value(file.filename)}' | "
+        f"content_type='{sanitize_log_value(file.content_type)}'"
     )
 
     # Read image bytes
@@ -46,6 +48,15 @@ async def extract(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Uploaded file is empty.",
+        )
+
+    # Enforce upload size limit
+    settings = get_settings()
+    max_bytes = settings.max_upload_size_mb * 1024 * 1024
+    if len(image_bytes) > max_bytes:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"File too large. Maximum allowed size is {settings.max_upload_size_mb} MB.",
         )
 
     service = ExtractionService(db=db, ai_provider=_get_ai_provider())
