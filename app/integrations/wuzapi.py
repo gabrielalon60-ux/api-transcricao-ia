@@ -86,7 +86,7 @@ class WuzapiClient:
             "body": text,
         }
 
-        logger.debug(f"WuzapiClient.send_text_message | phone={phone}")
+        logger.info(f"WuzapiClient.send_text_message | url={url} phone={phone}")
         async with httpx.AsyncClient(timeout=30) as client:
             try:
                 response = await client.post(
