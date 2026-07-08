@@ -6,7 +6,7 @@ from app.core.config import get_settings
 from app.database.session import get_engine
 from app.database import models
 
-from app.api import extract, requests, usage
+from app.api import extract, requests, usage, whatsapp
 
 
 @asynccontextmanager
@@ -38,6 +38,8 @@ app = FastAPI(
 app.include_router(extract.router)
 app.include_router(requests.router)
 app.include_router(usage.router)
+app.include_router(whatsapp.router)
+
 
 
 @app.get("/health", tags=["Health"])

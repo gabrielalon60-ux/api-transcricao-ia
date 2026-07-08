@@ -1,312 +1,168 @@
 ---
 name: security-review
-description: Security code review for vulnerabilities. Use when asked to "security review", "find vulnerabilities", "check for security issues", "audit security", "OWASP review", or review code for injection, XSS, authentication, authorization, cryptography issues. Provides systematic review with confidence-based reporting.
-allowed-tools: Read, Grep, Glob, Bash, Task
-license: LICENSE
+description: 'AI-powered codebase security scanner that reasons about code like a security researcher — tracing data flows, understanding component interactions, and catching vulnerabilities that pattern-matching tools miss. Use this skill when asked to scan code for security vulnerabilities, find bugs, check for SQL injection, XSS, command injection, exposed API keys, hardcoded secrets, insecure dependencies, access control issues, or any request like "is my code secure?", "review for security issues", "audit this codebase", or "check for vulnerabilities". Covers injection flaws, authentication and access control bugs, secrets exposure, weak cryptography, insecure dependencies, and business logic issues across JavaScript, TypeScript, Python, Java, PHP, Go, Ruby, and Rust.'
 ---
 
-<!--
-Reference material based on OWASP Cheat Sheet Series (CC BY-SA 4.0)
-https://cheatsheetseries.owasp.org/
--->
+# Security Review
 
-# Security Review Skill
+An AI-powered security scanner that reasons about your codebase the way a human security
+researcher would — tracing data flows, understanding component interactions, and catching
+vulnerabilities that pattern-matching tools miss.
 
-Identify exploitable security vulnerabilities in code. Report only **HIGH CONFIDENCE** findings—clear vulnerable patterns with attacker-controlled input.
+## When to Use This Skill
 
-## Scope: Research vs. Reporting
+Use this skill when the request involves:
 
-**CRITICAL DISTINCTION:**
+- Scanning a codebase or file for security vulnerabilities
+- Running a security review or vulnerability check
+- Checking for SQL injection, XSS, command injection, or other injection flaws
+- Finding exposed API keys, hardcoded secrets, or credentials in code
+- Auditing dependencies for known CVEs
+- Reviewing authentication, authorization, or access control logic
+- Detecting insecure cryptography or weak randomness
+- Performing a data flow analysis to trace user input to dangerous sinks
+- Any request phrasing like "is my code secure?", "scan this file", or "check my repo for vulnerabilities"
+- Running `/security-review` or `/security-review <path>`
 
-- **Report on**: Only the specific file, diff, or code provided by the user
-- **Research**: The ENTIRE codebase to build confidence before reporting
+## How This Skill Works
 
-Before flagging any issue, you MUST research the codebase to understand:
-- Where does this input actually come from? (Trace data flow)
-- Is there validation/sanitization elsewhere?
-- How is this configured? (Check settings, config files, middleware)
-- What framework protections exist?
+Unlike traditional static analysis tools that match patterns, this skill:
+1. **Reads code like a security researcher** — understanding context, intent, and data flow
+2. **Traces across files** — following how user input moves through your application
+3. **Self-verifies findings** — re-examines each result to filter false positives
+4. **Assigns severity ratings** — CRITICAL / HIGH / MEDIUM / LOW / INFO
+5. **Proposes targeted patches** — every finding includes a concrete fix
+6. **Requires human approval** — nothing is auto-applied; you always review first
 
-**Do NOT report issues based solely on pattern matching.** Investigate first, then report only what you're confident is exploitable.
+## Execution Workflow
 
-## Confidence Levels
+Follow these steps **in order** every time:
 
-| Level | Criteria | Action |
-|-------|----------|--------|
-| **HIGH** | Vulnerable pattern + attacker-controlled input confirmed | **Report** with severity |
-| **MEDIUM** | Vulnerable pattern, input source unclear | **Note** as "Needs verification" |
-| **LOW** | Theoretical, best practice, defense-in-depth | **Do not report** |
+### Step 1 — Scope Resolution
+Determine what to scan:
+- If a path was provided (`/security-review src/auth/`), scan only that scope
+- If no path given, scan the **entire project** starting from the root
+- Identify the language(s) and framework(s) in use (check package.json, requirements.txt,
+  go.mod, Cargo.toml, pom.xml, Gemfile, composer.json, etc.)
+- Read `references/language-patterns.md` to load language-specific vulnerability patterns
 
-## Do Not Flag
+### Step 2 — Dependency Audit
+Before scanning source code, audit dependencies first (fast wins):
+- **Node.js**: Check `package.json` + `package-lock.json` for known vulnerable packages
+- **Python**: Check `requirements.txt` / `pyproject.toml` / `Pipfile`
+- **Java**: Check `pom.xml` / `build.gradle`
+- **Ruby**: Check `Gemfile.lock`
+- **Rust**: Check `Cargo.toml`
+- **Go**: Check `go.sum`
+- Flag packages with known CVEs, deprecated crypto libs, or suspiciously old pinned versions
+- Read `references/vulnerable-packages.md` for a curated watchlist
 
-### General Rules
-- Test files (unless explicitly reviewing test security)
-- Dead code, commented code, documentation strings
-- Patterns using **constants** or **server-controlled configuration**
-- Code paths that require prior authentication to reach (note the auth requirement instead)
+### Step 3 — Secrets & Exposure Scan
+Scan ALL files (including config, env, CI/CD, Dockerfiles, IaC) for:
+- Hardcoded API keys, tokens, passwords, private keys
+- `.env` files accidentally committed
+- Secrets in comments or debug logs
+- Cloud credentials (AWS, GCP, Azure, Stripe, Twilio, etc.)
+- Database connection strings with credentials embedded
+- Read `references/secret-patterns.md` for regex patterns and entropy heuristics to apply
 
-### Server-Controlled Values (NOT Attacker-Controlled)
+### Step 4 — Vulnerability Deep Scan
+This is the core scan. Reason about the code — don't just pattern-match.
+Read `references/vuln-categories.md` for full details on each category.
 
-These are configured by operators, not controlled by attackers:
+**Injection Flaws**
+- SQL Injection: raw queries with string interpolation, ORM misuse, second-order SQLi
+- XSS: unescaped output, dangerouslySetInnerHTML, innerHTML, template injection
+- Command Injection: exec/spawn/system with user input
+- LDAP, XPath, Header, Log injection
 
-| Source | Example | Why It's Safe |
-|--------|---------|---------------|
-| Django settings | `settings.API_URL`, `settings.ALLOWED_HOSTS` | Set via config/env at deployment |
-| Environment variables | `os.environ.get('DATABASE_URL')` | Deployment configuration |
-| Config files | `config.yaml`, `app.config['KEY']` | Server-side files |
-| Framework constants | `django.conf.settings.*` | Not user-modifiable |
-| Hardcoded values | `BASE_URL = "https://api.internal"` | Compile-time constants |
+**Authentication & Access Control**
+- Missing authentication on sensitive endpoints
+- Broken object-level authorization (BOLA/IDOR)
+- JWT weaknesses (alg:none, weak secrets, no expiry validation)
+- Session fixation, missing CSRF protection
+- Privilege escalation paths
+- Mass assignment / parameter pollution
 
-**SSRF Example - NOT a vulnerability:**
-```python
-# SAFE: URL comes from Django settings (server-controlled)
-response = requests.get(f"{settings.SEER_AUTOFIX_URL}{path}")
-```
+**Data Handling**
+- Sensitive data in logs, error messages, or API responses
+- Missing encryption at rest or in transit
+- Insecure deserialization
+- Path traversal / directory traversal
+- XXE (XML External Entity) processing
+- SSRF (Server-Side Request Forgery)
 
-**SSRF Example - IS a vulnerability:**
-```python
-# VULNERABLE: URL comes from request (attacker-controlled)
-response = requests.get(request.GET.get('url'))
-```
+**Cryptography**
+- Use of MD5, SHA1, DES for security purposes
+- Hardcoded IVs or salts
+- Weak random number generation (Math.random() for tokens)
+- Missing TLS certificate validation
 
-### Framework-Mitigated Patterns
-Check language guides before flagging. Common false positives:
+**Business Logic**
+- Race conditions (TOCTOU)
+- Integer overflow in financial calculations
+- Missing rate limiting on sensitive endpoints
+- Predictable resource identifiers
 
-| Pattern | Why It's Usually Safe |
-|---------|----------------------|
-| Django `{{ variable }}` | Auto-escaped by default |
-| React `{variable}` | Auto-escaped by default |
-| Vue `{{ variable }}` | Auto-escaped by default |
-| `User.objects.filter(id=input)` | ORM parameterizes queries |
-| `cursor.execute("...%s", (input,))` | Parameterized query |
-| `innerHTML = "<b>Loading...</b>"` | Constant string, no user input |
+### Step 5 — Cross-File Data Flow Analysis
+After the per-file scan, perform a **holistic review**:
+- Trace user-controlled input from entry points (HTTP params, headers, body, file uploads)
+  all the way to sinks (DB queries, exec calls, HTML output, file writes)
+- Identify vulnerabilities that only appear when looking at multiple files together
+- Check for insecure trust boundaries between services or modules
 
-**Only flag these when:**
-- Django: `{{ var|safe }}`, `{% autoescape off %}`, `mark_safe(user_input)`
-- React: `dangerouslySetInnerHTML={{__html: userInput}}`
-- Vue: `v-html="userInput"`
-- ORM: `.raw()`, `.extra()`, `RawSQL()` with string interpolation
+### Step 6 — Self-Verification Pass
+For EACH finding:
+1. Re-read the relevant code with fresh eyes
+2. Ask: "Is this actually exploitable, or is there sanitization I missed?"
+3. Check if a framework or middleware already handles this upstream
+4. Downgrade or discard findings that aren't genuine vulnerabilities
+5. Assign final severity: CRITICAL / HIGH / MEDIUM / LOW / INFO
 
-## Review Process
+### Step 7 — Generate Security Report
+Output the full report in the format defined in `references/report-format.md`.
 
-### 1. Detect Context
+### Step 8 — Propose Patches
+For every CRITICAL and HIGH finding, generate a concrete patch:
+- Show the vulnerable code (before)
+- Show the fixed code (after)
+- Explain what changed and why
+- Preserve the original code style, variable names, and structure
+- Add a comment explaining the fix inline
 
-What type of code am I reviewing?
+Explicitly state: **"Review each patch before applying. Nothing has been changed yet."**
 
-| Code Type | Load These References |
-|-----------|----------------------|
-| API endpoints, routes | `authorization.md`, `authentication.md`, `injection.md` |
-| Frontend, templates | `xss.md`, `csrf.md` |
-| File handling, uploads | `file-security.md` |
-| Crypto, secrets, tokens | `cryptography.md`, `data-protection.md` |
-| Data serialization | `deserialization.md` |
-| External requests | `ssrf.md` |
-| Business workflows | `business-logic.md` |
-| GraphQL, REST design | `api-security.md` |
-| Config, headers, CORS | `misconfiguration.md` |
-| CI/CD, dependencies | `supply-chain.md` |
-| Error handling | `error-handling.md` |
-| Audit, logging | `logging.md` |
+## Severity Guide
 
-### 2. Load Language Guide
+| Severity | Meaning | Example |
+|----------|---------|---------|
+| 🔴 CRITICAL | Immediate exploitation risk, data breach likely | SQLi, RCE, auth bypass |
+| 🟠 HIGH | Serious vulnerability, exploit path exists | XSS, IDOR, hardcoded secrets |
+| 🟡 MEDIUM | Exploitable with conditions or chaining | CSRF, open redirect, weak crypto |
+| 🔵 LOW | Best practice violation, low direct risk | Verbose errors, missing headers |
+| ⚪ INFO | Observation worth noting, not a vulnerability | Outdated dependency (no CVE) |
 
-Based on file extension or imports:
+## Output Rules
 
-| Indicators | Guide |
-|------------|-------|
-| `.py`, `django`, `flask`, `fastapi` | `languages/python.md` |
-| `.js`, `.ts`, `express`, `react`, `vue`, `next` | `languages/javascript.md` |
-| `.go`, `go.mod` | `languages/go.md` |
-| `.rs`, `Cargo.toml` | `languages/rust.md` |
-| `.java`, `spring`, `@Controller` | `languages/java.md` |
-
-### 3. Load Infrastructure Guide (if applicable)
-
-| File Type | Guide |
-|-----------|-------|
-| `Dockerfile`, `.dockerignore` | `infrastructure/docker.md` |
-| K8s manifests, Helm charts | `infrastructure/kubernetes.md` |
-| `.tf`, Terraform | `infrastructure/terraform.md` |
-| GitHub Actions, `.gitlab-ci.yml` | `infrastructure/ci-cd.md` |
-| AWS/GCP/Azure configs, IAM | `infrastructure/cloud.md` |
-
-### 4. Research Before Flagging
-
-**For each potential issue, research the codebase to build confidence:**
-
-- Where does this value actually come from? Trace the data flow.
-- Is it configured at deployment (settings, env vars) or from user input?
-- Is there validation, sanitization, or allowlisting elsewhere?
-- What framework protections apply?
-
-Only report issues where you have HIGH confidence after understanding the broader context.
-
-### 5. Verify Exploitability
-
-For each potential finding, confirm:
-
-**Is the input attacker-controlled?**
-
-| Attacker-Controlled (Investigate) | Server-Controlled (Usually Safe) |
-|-----------------------------------|----------------------------------|
-| `request.GET`, `request.POST`, `request.args` | `settings.X`, `app.config['X']` |
-| `request.json`, `request.data`, `request.body` | `os.environ.get('X')` |
-| `request.headers` (most headers) | Hardcoded constants |
-| `request.cookies` (unsigned) | Internal service URLs from config |
-| URL path segments: `/users/<id>/` | Database content from admin/system |
-| File uploads (content and names) | Signed session data |
-| Database content from other users | Framework settings |
-| WebSocket messages | |
-
-**Does the framework mitigate this?**
-- Check language guide for auto-escaping, parameterization
-- Check for middleware/decorators that sanitize
-
-**Is there validation upstream?**
-- Input validation before this code
-- Sanitization libraries (DOMPurify, bleach, etc.)
-
-### 6. Report HIGH Confidence Only
-
-Skip theoretical issues. Report only what you've confirmed is exploitable after research.
-
----
-
-## Severity Classification
-
-| Severity | Impact | Examples |
-|----------|--------|----------|
-| **Critical** | Direct exploit, severe impact, no auth required | RCE, SQL injection to data, auth bypass, hardcoded secrets |
-| **High** | Exploitable with conditions, significant impact | Stored XSS, SSRF to metadata, IDOR to sensitive data |
-| **Medium** | Specific conditions required, moderate impact | Reflected XSS, CSRF on state-changing actions, path traversal |
-| **Low** | Defense-in-depth, minimal direct impact | Missing headers, verbose errors, weak algorithms in non-critical context |
-
----
-
-## Quick Patterns Reference
-
-### Always Flag (Critical)
-```
-eval(user_input)           # Any language
-exec(user_input)           # Any language
-pickle.loads(user_data)    # Python
-yaml.load(user_data)       # Python (not safe_load)
-unserialize($user_data)    # PHP
-deserialize(user_data)     # Java ObjectInputStream
-shell=True + user_input    # Python subprocess
-child_process.exec(user)   # Node.js
-```
-
-### Always Flag (High)
-```
-innerHTML = userInput              # DOM XSS
-dangerouslySetInnerHTML={user}     # React XSS
-v-html="userInput"                 # Vue XSS
-f"SELECT * FROM x WHERE {user}"    # SQL injection
-`SELECT * FROM x WHERE ${user}`    # SQL injection
-os.system(f"cmd {user_input}")     # Command injection
-```
-
-### Always Flag (Secrets)
-```
-password = "hardcoded"
-api_key = "sk-..."
-AWS_SECRET_ACCESS_KEY = "..."
-private_key = "-----BEGIN"
-```
-
-### Check Context First (MUST Investigate Before Flagging)
-```
-# SSRF - ONLY if URL is from user input, NOT from settings/config
-requests.get(request.GET['url'])     # FLAG: User-controlled URL
-requests.get(settings.API_URL)       # SAFE: Server-controlled config
-requests.get(f"{settings.BASE}/{x}") # CHECK: Is 'x' user input?
-
-# Path traversal - ONLY if path is from user input
-open(request.GET['file'])            # FLAG: User-controlled path
-open(settings.LOG_PATH)              # SAFE: Server-controlled config
-open(f"{BASE_DIR}/{filename}")       # CHECK: Is 'filename' user input?
-
-# Open redirect - ONLY if URL is from user input
-redirect(request.GET['next'])        # FLAG: User-controlled redirect
-redirect(settings.LOGIN_URL)         # SAFE: Server-controlled config
-
-# Weak crypto - ONLY if used for security purposes
-hashlib.md5(file_content)            # SAFE: File checksums, caching
-hashlib.md5(password)                # FLAG: Password hashing
-random.random()                      # SAFE: Non-security uses (UI, sampling)
-random.random() for token            # FLAG: Security tokens need secrets module
-```
-
----
-
-## Output Format
-
-```markdown
-## Security Review: [File/Component Name]
-
-### Summary
-- **Findings**: X (Y Critical, Z High, ...)
-- **Risk Level**: Critical/High/Medium/Low
-- **Confidence**: High/Mixed
-
-### Findings
-
-#### [VULN-001] [Vulnerability Type] (Severity)
-- **Location**: `file.py:123`
-- **Confidence**: High
-- **Issue**: [What the vulnerability is]
-- **Impact**: [What an attacker could do]
-- **Evidence**:
-  ```python
-  [Vulnerable code snippet]
-  ```
-- **Fix**: [How to remediate]
-
-### Needs Verification
-
-#### [VERIFY-001] [Potential Issue]
-- **Location**: `file.py:456`
-- **Question**: [What needs to be verified]
-```
-
-If no vulnerabilities found, state: "No high-confidence vulnerabilities identified."
-
----
+- **Always** produce a findings summary table first (counts by severity)
+- **Never** auto-apply any patch — present patches for human review only
+- **Always** include a confidence rating per finding (High / Medium / Low)
+- **Group findings** by category, not by file
+- **Be specific** — include file path, line number, and the exact vulnerable code snippet
+- **Explain the risk** in plain English — what could an attacker do with this?
+- If the codebase is clean, say so clearly: "No vulnerabilities found" with what was scanned
 
 ## Reference Files
 
-### Core Vulnerabilities (`references/`)
-| File | Covers |
-|------|--------|
-| `injection.md` | SQL, NoSQL, OS command, LDAP, template injection |
-| `xss.md` | Reflected, stored, DOM-based XSS |
-| `authorization.md` | Authorization, IDOR, privilege escalation |
-| `authentication.md` | Sessions, credentials, password storage |
-| `cryptography.md` | Algorithms, key management, randomness |
-| `deserialization.md` | Pickle, YAML, Java, PHP deserialization |
-| `file-security.md` | Path traversal, uploads, XXE |
-| `ssrf.md` | Server-side request forgery |
-| `csrf.md` | Cross-site request forgery |
-| `data-protection.md` | Secrets exposure, PII, logging |
-| `api-security.md` | REST, GraphQL, mass assignment |
-| `business-logic.md` | Race conditions, workflow bypass |
-| `modern-threats.md` | Prototype pollution, LLM injection, WebSocket |
-| `misconfiguration.md` | Headers, CORS, debug mode, defaults |
-| `error-handling.md` | Fail-open, information disclosure |
-| `supply-chain.md` | Dependencies, build security |
-| `logging.md` | Audit failures, log injection |
+For detailed detection guidance, load the following reference files as needed:
 
-### Language Guides (`languages/`)
-- `python.md` - Django, Flask, FastAPI patterns
-- `javascript.md` - Node, Express, React, Vue, Next.js
-- `go.md` - Go-specific security patterns
-- `rust.md` - Rust unsafe blocks, FFI security
-- `java.md` - Spring, Java EE patterns
-
-### Infrastructure (`infrastructure/`)
-- `docker.md` - Container security
-- `kubernetes.md` - K8s RBAC, secrets, policies
-- `terraform.md` - IaC security
-- `ci-cd.md` - Pipeline security
-- `cloud.md` - AWS/GCP/Azure security
+- `references/vuln-categories.md` — Deep reference for every vulnerability category with detection signals, safe patterns, and escalation checkers
+  - Search patterns: `SQL injection`, `XSS`, `command injection`, `SSRF`, `BOLA`, `IDOR`, `JWT`, `CSRF`, `secrets`, `cryptography`, `race condition`, `path traversal`
+- `references/secret-patterns.md` — Regex patterns, entropy-based detection, and CI/CD secret risks
+  - Search patterns: `API key`, `token`, `private key`, `connection string`, `entropy`, `.env`, `GitHub Actions`, `Docker`, `Terraform`
+- `references/language-patterns.md` — Framework-specific vulnerability patterns for JavaScript, Python, Java, PHP, Go, Ruby, and Rust
+  - Search patterns: `Express`, `React`, `Next.js`, `Django`, `Flask`, `FastAPI`, `Spring Boot`, `PHP`, `Go`, `Rails`, `Rust`
+- `references/vulnerable-packages.md` — Curated CVE watchlist for npm, pip, Maven, Rubygems, Cargo, and Go modules
+  - Search patterns: `lodash`, `axios`, `jsonwebtoken`, `Pillow`, `log4j`, `nokogiri`, `CVE`
+- `references/report-format.md` — Structured output template for security reports with finding cards, dependency audit, secrets scan, and patch proposal formatting
+  - Search patterns: `report`, `format`, `template`, `finding`, `patch`, `summary`, `confidence`

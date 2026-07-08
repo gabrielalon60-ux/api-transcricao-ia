@@ -1,11 +1,23 @@
 {
   "version": 1,
   "skills": {
+    "context7-mcp": {
+      "source": "upstash/context7",
+      "sourceType": "github",
+      "skillPath": "skills/context7-mcp/SKILL.md",
+      "computedHash": "aeb4278e8d01669681b37af534ff29d66a5b12cb9c47d138146b2aaeea3c0674"
+    },
+    "firecrawl": {
+      "source": "firecrawl/cli",
+      "sourceType": "github",
+      "skillPath": "skills/firecrawl-cli/SKILL.md",
+      "computedHash": "efe92b4932d69fee41078e5af7aa05b0543022b76e045295511f4955c63563e2"
+    },
     "security-review": {
-      "source": "getsentry/skills",
+      "source": "github/awesome-copilot",
       "sourceType": "github",
       "skillPath": "skills/security-review/SKILL.md",
-      "computedHash": "1eee1e41aa0a0e75dbbe0cac387e3d61bedf51af1888f184301a173731e6973e"
+      "computedHash": "9b1791054c648b84ca424fc1342dede2e04759dc73436bb91d21675d5a4c13ea"
     }
   }
 }
