@@ -11,7 +11,7 @@ echo " Instalador"
 echo "========================================"
 echo
 
-echo "1/5 - Verificando Docker..."
+echo "1/6 - Verificando Docker..."
 
 if ! command -v docker >/dev/null 2>&1; then
     echo
@@ -30,7 +30,7 @@ fi
 echo "Docker encontrado e em execução."
 echo
 
-echo "2/5 - Verificando Docker Compose..."
+echo "2/6 - Verificando Docker Compose..."
 
 if ! docker compose version >/dev/null 2>&1; then
     echo
@@ -42,7 +42,7 @@ fi
 echo "Docker Compose encontrado."
 echo
 
-echo "3/5 - Criando diretórios persistentes..."
+echo "3/6 - Criando diretórios persistentes..."
 
 mkdir -p wuzapi/files
 mkdir -p wuzapi/dbdata
@@ -50,7 +50,7 @@ mkdir -p wuzapi/dbdata
 echo "Diretórios criados ou já existentes."
 echo
 
-echo "4/5 - Verificando configuração..."
+echo "4/6 - Verificando configuração..."
 
 if [ ! -f ".env" ]; then
     if [ ! -f ".env.example" ]; then
@@ -81,10 +81,23 @@ fi
 echo "Arquivo .env encontrado."
 echo
 
-echo "5/5 - Construindo e iniciando os containers..."
+echo "5/6 - Provisionando banco e aplicação inicial..."
+
+docker compose build api-transcricao
+
+docker compose run --rm --no-deps \
+    -v "$(pwd)/.env:/app/.env" \
+    api-transcricao \
+    python scripts/provision.py
+
+echo
+echo "Provisionamento concluído."
+echo
+
+echo "6/6 - Iniciando os containers..."
 
 docker compose config --quiet
-docker compose up -d --build
+docker compose up -d --build --remove-orphans
 
 echo
 echo "Estado dos containers:"
