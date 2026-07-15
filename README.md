@@ -1,53 +1,225 @@
 # Intelligent Document Extraction API
 
-SaaS platform for intelligent document and image processing powered by AI (Google Gemini + provider-agnostic architecture).
+AI-powered platform for intelligent document extraction with native WhatsApp integration.
 
-## Quickstart
-
-### 1. Clone & install dependencies
-
-```bash
-python -m venv .venv
-.venv\Scripts\activate       # Windows
-pip install -r requirements.txt
-```
-
-### 2. Configure environment
-
-```bash
-copy .env.example .env
-# Edit .env: set DATABASE_URL and GEMINI_API_KEY
-```
-
-### 3. Start the server
-
-```bash
-uvicorn app.main:app --reload
-```
-
-Swagger UI: http://localhost:8000/docs
+The project uses **Google Gemini** for document understanding and **WUZAPI** for WhatsApp communication, running together through Docker Compose.
 
 ---
 
-## Usage
+# Features
 
-### Application Management
+- AI document extraction
+- WhatsApp integration
+- REST API
+- Swagger documentation
+- Usage statistics
+- Request history
+- Docker-based deployment
+- Single configuration file (.env)
 
-Applications and API keys are managed securely via the database.
+---
 
-1. Generate a new API key locally: `python scripts/generate_api_key.py`
-2. Insert the application manually into Supabase, using the SHA-256 hash.
-3. Deliver the raw API key to the customer. It cannot be recovered.
+# Architecture
 
-### Extract data from an image
+```
+                WhatsApp
+                    │
+                    ▼
+              WUZAPI Container
+                    │
+                    ▼
+      Intelligent Document API
+                    │
+                    ▼
+         Google Gemini + Database
+```
 
-```http
+Both services run together using Docker Compose.
+
+---
+
+# Requirements
+
+- Docker
+- Docker Compose
+- Git
+
+---
+
+# Installation
+
+Clone the repository:
+
+```bash
+git clone https://github.com/gabrielalon60-ux/api-transcricao-ia.git
+cd api-transcricao-ia
+```
+
+Run the installer:
+
+```bash
+chmod +x install.sh
+./install.sh
+```
+
+On the first execution the installer will automatically create:
+
+```
+.env
+```
+
+Edit this file and configure your environment.
+
+Run the installer again:
+
+```bash
+./install.sh
+```
+
+---
+
+# Configuration
+
+The project uses a **single `.env` file** shared by all services.
+
+Create it manually if necessary:
+
+```bash
+cp .env.example .env
+```
+
+Main configuration variables:
+
+```dotenv
+DATABASE_URL=
+
+GEMINI_API_KEY=
+
+API_KEY_HASH_SECRET=
+
+WUZAPI_BASE_URL=http://wuzapi:8080
+WUZAPI_INSTANCE=
+WUZAPI_TOKEN=
+WUZAPI_APPLICATION_ID=
+
+WUZAPI_ADMIN_TOKEN=
+WUZAPI_PORT=8080
+SESSION_DEVICE_NAME=API Transcrição IA
+
+TZ=America/Sao_Paulo
+```
+
+---
+
+# Updating
+
+To update an existing installation:
+
+```bash
+./update.sh
+```
+
+The script automatically:
+
+- pulls the latest code
+- rebuilds changed containers
+- starts the application
+- removes unused images
+
+---
+
+# Running manually
+
+Start:
+
+```bash
+docker compose up -d --build
+```
+
+Stop:
+
+```bash
+docker compose down
+```
+
+Restart:
+
+```bash
+docker compose restart
+```
+
+View logs:
+
+```bash
+docker compose logs -f
+```
+
+Container status:
+
+```bash
+docker compose ps
+```
+
+---
+
+# Services
+
+API
+
+```
+http://localhost:8000
+```
+
+Swagger
+
+```
+http://localhost:8000/docs
+```
+
+WUZAPI
+
+```
+http://localhost:8080
+```
+
+Health Check
+
+```
+http://localhost:8000/health
+```
+
+---
+
+# Authentication
+
+Applications are authenticated using API Keys.
+
+Generate a new API Key:
+
+```bash
+python scripts/generate_api_key.py
+```
+
+Insert the generated SHA-256 hash into the database.
+
+Deliver the original key to the client.
+
+The raw key cannot be recovered.
+
+---
+
+# Example Request
+
+```
 POST /extract
-Authorization: Bearer APP_MYAPP_123456789
+Authorization: Bearer APP_MY_APP_KEY
 Content-Type: multipart/form-data
+```
 
-file=<image file>
-prompt=Extract full name, CPF, and date of birth
+Body:
+
+```
+file=<image>
 ```
 
 Response:
@@ -66,54 +238,78 @@ Response:
 
 ---
 
-## Endpoints
+# Endpoints
 
-| Method | Path | Description |
-|--------|------|-------------|
-| `POST` | `/extract` | Extract structured data from image |
-| `GET` | `/requests` | List request history (filterable) |
-| `GET` | `/usage` | Token usage and cost statistics |
-| `GET` | `/health` | Health check |
+| Method | Endpoint | Description |
+|---------|----------|-------------|
+| POST | /extract | Extract structured data |
+| GET | /requests | Request history |
+| GET | /usage | Usage statistics |
+| POST | /whatsapp/webhook | WUZAPI webhook |
+| GET | /health | Health check |
 
 ---
 
-## Project Structure
+# Project Structure
 
-```text
-app/
-├── main.py
-├── api/
-│   ├── extract.py
-│   ├── requests.py
-│   └── usage.py
-├── services/
-│   ├── ai/
-│   │   ├── provider.py         ← Abstract AIProvider
-│   │   └── gemini_provider.py  ← Gemini implementation
-│   ├── extraction_service.py
-│   └── usage_service.py
-├── database/
-│   ├── models.py
-│   ├── session.py
-│   └── repositories/
-├── auth/
-│   └── api_key_auth.py
-├── schemas/
-│   ├── requests.py
-│   └── usage.py
-├── core/
-│   ├── config.py
-│   └── logging.py
-└── tests/
+```
+api-transcricao-ia/
+│
+├── app/
+├── scripts/
+├── wuzapi/
+│   ├── dbdata/
+│   └── files/
+│
+├── Dockerfile
+├── docker-compose.yml
+├── install.sh
+├── update.sh
+├── .env.example
+└── README.md
 ```
 
 ---
 
-## Adding a New AI Provider
+# AI Providers
 
-1. Create `app/services/ai/openai_provider.py`
-2. Inherit from `AIProvider`
-3. Implement `async def extract(self, image_bytes, prompt) -> ExtractionResult`
-4. Inject into `ExtractionService` via dependency injection or config flag
+The AI layer is provider-agnostic.
 
-No other changes required.
+To add a new provider:
+
+1. Create a new provider inside:
+
+```
+app/services/ai/
+```
+
+2. Inherit from `AIProvider`.
+
+3. Implement:
+
+```python
+extract(...)
+```
+
+4. Register the provider.
+
+No other changes are required.
+
+---
+
+# Persistent Data
+
+WUZAPI data is stored in:
+
+```
+wuzapi/dbdata
+wuzapi/files
+```
+
+Do not delete these folders when updating.
+
+---
+
+# License
+
+This project is licensed under the MIT License.

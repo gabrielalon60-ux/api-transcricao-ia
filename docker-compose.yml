@@ -8,7 +8,7 @@ services:
     restart: unless-stopped
 
     env_file:
-      - .env
+      - ./.env
 
     ports:
       - "8000:8000"
@@ -20,7 +20,7 @@ services:
     restart: unless-stopped
 
     env_file:
-      - ./wuzapi/.env
+      - ./.env
 
     ports:
       - "8080:8080"
