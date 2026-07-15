@@ -45,3 +45,9 @@ logs/
 .DS_Store
 Thumbs.db
 *.db
+
+wuzapi/dbdata/*
+!wuzapi/dbdata/.gitkeep
+
+wuzapi/files/*
+!wuzapi/files/.gitkeep
