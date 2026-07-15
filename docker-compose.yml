@@ -1,0 +1,33 @@
+services:
+
+  api-transcricao:
+    build:
+      context: .
+    container_name: api-transcricao
+
+    restart: unless-stopped
+
+    env_file:
+      - .env
+
+    ports:
+      - "8000:8000"
+
+  wuzapi:
+    image: asternic/wuzapi:latest
+    container_name: wuzapi
+
+    restart: unless-stopped
+
+    env_file:
+      - ./wuzapi/.env
+
+    ports:
+      - "8080:8080"
+
+    volumes:
+      - ./wuzapi/files:/app/files
+      - ./wuzapi/dbdata:/app/dbdata
+
+    depends_on:
+      - api-transcricao
