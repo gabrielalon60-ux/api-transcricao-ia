@@ -1,0 +1,81 @@
+# ==========================================
+# Git
+# ==========================================
+
+.git
+.github
+
+
+# ==========================================
+# Environment files and secrets
+# ==========================================
+
+.env
+.env.*
+!.env.example
+
+
+# ==========================================
+# Python caches and environments
+# ==========================================
+
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+.venv/
+venv/
+env/
+ENV/
+
+
+# ==========================================
+# Build artifacts
+# ==========================================
+
+build/
+dist/
+*.egg-info/
+
+
+# ==========================================
+# IDE and operating system
+# ==========================================
+
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+
+# ==========================================
+# Logs and local databases
+# ==========================================
+
+*.log
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+
+# ==========================================
+# WUZAPI persistent data
+# ==========================================
+
+wuzapi/
+
+
+# ==========================================
+# Files not required inside the API image
+# ==========================================
+
+README.md
+install.sh
+update.sh
+docker-compose.yml
+skills-lock.json
+.agents/
