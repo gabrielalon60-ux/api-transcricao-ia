@@ -670,6 +670,7 @@ DATABASE_URL=postgresql://postgres.PROJECT_REF:SENHA@aws-REGIAO.pooler.supabase.
 ####################################################
 
 GEMINI_API_KEY=SUA_CHAVE_GEMINI
+GEMINI_MODEL=your_gemini_api_model_here #Ex.: gemini-3.1-flash-lite
 
 
 ####################################################
