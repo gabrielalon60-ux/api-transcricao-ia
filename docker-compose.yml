@@ -1,24 +1,76 @@
+version: '3.8'
+
 services:
-  api-transcricao:
+  platform-db:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
+      POSTGRES_DB: ${DB_NAME:-platform}
+    ports:
+      - "5432:5432"
+    volumes:
+      - platform-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  transcription:
     build:
       context: .
-    container_name: api-transcricao
-    restart: unless-stopped
-    env_file:
-      - ./.env
+      dockerfile: Dockerfile
+    command: uv run uvicorn transcription.main:app --host 0.0.0.0 --port 8001
     ports:
-      - "8000:8000"
-
-  wuzapi:
-    image: asternic/wuzapi:latest
-    container_name: wuzapi
-    restart: unless-stopped
-    env_file:
-      - ./.env
-    ports:
-      - "8080:8080"
-    volumes:
-      - ./wuzapi/files:/app/files
-      - ./wuzapi/dbdata:/app/dbdata
+      - "8001:8001"
+    environment:
+      - ENV=local
+      - DATABASE_URL=postgresql://${DB_USER:-postgres}:${DB_PASSWORD:-postgres}@platform-db:5432/${DB_NAME:-platform}
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-placeholder_key}
+      - API_KEY_HASH_SECRET=${API_KEY_HASH_SECRET:-placeholder_secret}
     depends_on:
-      - api-transcricao
+      platform-db:
+        condition: service_healthy
+
+  orchestrator:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: uv run uvicorn apps.orchestrator.main:app --host 0.0.0.0 --port 8002
+    ports:
+      - "8002:8002"
+    environment:
+      - ENV=local
+    depends_on:
+      platform-db:
+        condition: service_healthy
+
+  bot-df:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: uv run uvicorn apps.bot_df.main:app --host 0.0.0.0 --port 8003
+    ports:
+      - "8003:8003"
+    environment:
+      - ENV=local
+    depends_on:
+      platform-db:
+        condition: service_healthy
+
+  db-writer:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: uv run uvicorn apps.db_writer.main:app --host 0.0.0.0 --port 8004
+    ports:
+      - "8004:8004"
+    environment:
+      - ENV=local
+    depends_on:
+      platform-db:
+        condition: service_healthy
+
+volumes:
+  platform-db-data:

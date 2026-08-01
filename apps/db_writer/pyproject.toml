@@ -1,0 +1,14 @@
+[project]
+name = "db_writer"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "contracts",
+    "observability",
+    "db"
+]
+
+[tool.uv.sources]
+contracts = { workspace = true }
+observability = { workspace = true }
+db = { workspace = true }

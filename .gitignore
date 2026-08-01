@@ -107,3 +107,6 @@ wuzapi/dbdata/*
 
 wuzapi/files/*
 !wuzapi/files/.gitkeep
+
+# Gitleaks binary
+gitleaks.exe

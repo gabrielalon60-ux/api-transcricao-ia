@@ -1,0 +1,16 @@
+[project]
+name = "orchestrator"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "contracts",
+    "security",
+    "observability",
+    "db"
+]
+
+[tool.uv.sources]
+contracts = { workspace = true }
+security = { workspace = true }
+observability = { workspace = true }
+db = { workspace = true }
