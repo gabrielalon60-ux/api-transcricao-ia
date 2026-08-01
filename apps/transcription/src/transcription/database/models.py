@@ -34,13 +34,17 @@ class Application(Base):
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
-    api_key_hash: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
+    api_key_hash: Mapped[str] = mapped_column(
+        String(255), unique=True, nullable=False, index=True
+    )
     active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, nullable=False
     )
 
-    requests: Mapped[list["Request"]] = relationship("Request", back_populates="application")
+    requests: Mapped[list["Request"]] = relationship(
+        "Request", back_populates="application"
+    )
 
 
 class Request(Base):
@@ -63,9 +67,15 @@ class Request(Base):
     )
     processing_time_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
-    application: Mapped["Application"] = relationship("Application", back_populates="requests")
-    extraction: Mapped["Extraction"] = relationship("Extraction", back_populates="request", uselist=False)
-    usage_log: Mapped["UsageLog"] = relationship("UsageLog", back_populates="request", uselist=False)
+    application: Mapped["Application"] = relationship(
+        "Application", back_populates="requests"
+    )
+    extraction: Mapped["Extraction"] = relationship(
+        "Extraction", back_populates="request", uselist=False
+    )
+    usage_log: Mapped["UsageLog"] = relationship(
+        "UsageLog", back_populates="request", uselist=False
+    )
 
 
 class Extraction(Base):

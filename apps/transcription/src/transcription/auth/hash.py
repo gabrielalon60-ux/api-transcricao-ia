@@ -20,4 +20,3 @@ def verify_api_key(api_key: str, stored_hash: str) -> bool:
     Uses hmac.compare_digest to prevent timing side-channel attacks.
     """
     return hmac.compare_digest(hash_api_key(api_key), stored_hash)
-

@@ -6,6 +6,7 @@ from typing import Any
 @dataclass
 class ExtractionResult:
     """Result returned by any AI provider."""
+
     data: dict[str, Any]
     model_name: str
     input_tokens: int

@@ -32,7 +32,9 @@ def _get_ai_provider() -> AIProvider:
     ),
 )
 async def extract(
-    file: UploadFile = File(..., description="Image file to analyze (JPEG, PNG, WEBP, PDF)."),
+    file: UploadFile = File(
+        ..., description="Image file to analyze (JPEG, PNG, WEBP, PDF)."
+    ),
     current_app: Application = Depends(get_current_application),
     db: Session = Depends(get_db),
 ):
@@ -79,7 +81,11 @@ async def extract(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail="AI provider is currently unavailable due to high demand. Please try again in a few seconds.",
             )
-        if "429" in exc_str or "RESOURCE_EXHAUSTED" in exc_str or "quota" in exc_str.lower():
+        if (
+            "429" in exc_str
+            or "RESOURCE_EXHAUSTED" in exc_str
+            or "quota" in exc_str.lower()
+        ):
             raise HTTPException(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
                 detail="AI provider quota exceeded. Please check your API plan and billing, or try again later.",

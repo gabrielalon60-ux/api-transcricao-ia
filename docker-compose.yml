@@ -37,7 +37,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    command: uv run uvicorn apps.orchestrator.main:app --host 0.0.0.0 --port 8002
+    command: uv run uvicorn orchestrator.main:app --host 0.0.0.0 --port 8002
     ports:
       - "8002:8002"
     environment:
@@ -50,7 +50,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    command: uv run uvicorn apps.bot_df.main:app --host 0.0.0.0 --port 8003
+    command: uv run uvicorn bot_df.main:app --host 0.0.0.0 --port 8003
     ports:
       - "8003:8003"
     environment:
@@ -63,7 +63,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    command: uv run uvicorn apps.db_writer.main:app --host 0.0.0.0 --port 8004
+    command: uv run uvicorn db_writer.main:app --host 0.0.0.0 --port 8004
     ports:
       - "8004:8004"
     environment:

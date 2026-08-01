@@ -15,13 +15,23 @@ class UsageService:
         """Aggregate token usage and costs for a specific application."""
 
         # Global totals for this app
-        totals_query = self.db.query(
-            func.count(UsageLog.id).label("total_requests"),
-            func.coalesce(func.sum(UsageLog.input_tokens), 0).label("total_input_tokens"),
-            func.coalesce(func.sum(UsageLog.output_tokens), 0).label("total_output_tokens"),
-            func.coalesce(func.sum(UsageLog.estimated_cost), 0.0).label("total_cost"),
-        ).join(Request, Request.id == UsageLog.request_id).filter(Request.application_id == application_id)
-        
+        totals_query = (
+            self.db.query(
+                func.count(UsageLog.id).label("total_requests"),
+                func.coalesce(func.sum(UsageLog.input_tokens), 0).label(
+                    "total_input_tokens"
+                ),
+                func.coalesce(func.sum(UsageLog.output_tokens), 0).label(
+                    "total_output_tokens"
+                ),
+                func.coalesce(func.sum(UsageLog.estimated_cost), 0.0).label(
+                    "total_cost"
+                ),
+            )
+            .join(Request, Request.id == UsageLog.request_id)
+            .filter(Request.application_id == application_id)
+        )
+
         totals = totals_query.one()
 
         summary = UsageSummary(
@@ -37,9 +47,15 @@ class UsageService:
                 Application.id.label("application_id"),
                 Application.name.label("application_name"),
                 func.count(UsageLog.id).label("total_requests"),
-                func.coalesce(func.sum(UsageLog.estimated_cost), 0.0).label("total_cost"),
-                func.coalesce(func.sum(UsageLog.input_tokens), 0).label("total_input_tokens"),
-                func.coalesce(func.sum(UsageLog.output_tokens), 0).label("total_output_tokens"),
+                func.coalesce(func.sum(UsageLog.estimated_cost), 0.0).label(
+                    "total_cost"
+                ),
+                func.coalesce(func.sum(UsageLog.input_tokens), 0).label(
+                    "total_input_tokens"
+                ),
+                func.coalesce(func.sum(UsageLog.output_tokens), 0).label(
+                    "total_output_tokens"
+                ),
             )
             .join(Request, Request.id == UsageLog.request_id)
             .join(Application, Application.id == Request.application_id)

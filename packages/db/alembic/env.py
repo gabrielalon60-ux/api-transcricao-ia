@@ -1,6 +1,7 @@
 import os
 import sys
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(__file__)), 'src'))
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(__file__)), "src"))
 from logging.config import fileConfig
 
 from sqlalchemy import engine_from_config
@@ -52,13 +53,13 @@ def run_migrations_offline() -> None:
 
 def run_migrations_online() -> None:
     """Run migrations in 'online' mode."""
-    
+
     # Override url from env if present
     db_url = os.environ.get("DATABASE_URL")
     configuration = config.get_section(config.config_ini_section, {})
     if db_url:
         configuration["sqlalchemy.url"] = db_url
-        
+
     connectable = engine_from_config(
         configuration,
         prefix="sqlalchemy.",
@@ -66,9 +67,7 @@ def run_migrations_online() -> None:
     )
 
     with connectable.connect() as connection:
-        context.configure(
-            connection=connection, target_metadata=target_metadata
-        )
+        context.configure(connection=connection, target_metadata=target_metadata)
 
         with context.begin_transaction():
             context.run_migrations()

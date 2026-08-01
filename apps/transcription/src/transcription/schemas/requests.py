@@ -7,13 +7,20 @@ from transcription.database.models import RequestStatus
 
 # --- Extraction ---
 
+
 class ExtractionRequest(BaseModel):
     """Schema for the extraction request body (prompt field)."""
-    prompt: str = Field(..., min_length=1, description="Instructions describing what to extract from the image.")
+
+    prompt: str = Field(
+        ...,
+        min_length=1,
+        description="Instructions describing what to extract from the image.",
+    )
 
 
 class ExtractionResponse(BaseModel):
     """Schema for the /extract response."""
+
     success: bool
     request_id: uuid.UUID
     data: dict[str, Any]
@@ -24,12 +31,14 @@ class ExtractionResponse(BaseModel):
 
 class ExtractionErrorResponse(BaseModel):
     """Schema for error responses."""
+
     success: bool = False
     error: str
     detail: str | None = None
 
 
 # --- Request History ---
+
 
 class RequestOut(BaseModel):
     id: uuid.UUID

@@ -1,5 +1,4 @@
 from functools import lru_cache
-
 from pydantic_settings import BaseSettings
 
 
@@ -7,21 +6,21 @@ class Settings(BaseSettings):
     # Database
     database_url: str
 
-    # AI provider
-    gemini_api_key: str
-    gemini_model: str = "gemini-2.5-flash-lite"
-
-    # Security
-    api_key_hash_secret: str
-    max_upload_size_mb: int = 10
-
-    # WhatsApp / WUZAPI
+    # WUZAPI (outbound and webhook validation)
     wuzapi_base_url: str = ""
-    wuzapi_instance: str = ""
     wuzapi_token: str = ""
-    wuzapi_application_id: str = ""
+    wuzapi_webhook_secret: str = ""
 
-    # Application
+    # Security Peppers/Secrets
+    api_key_hash_secret: str = ""
+    registration_secret_pepper: str = ""
+    log_pii_hash_key: str = ""
+
+    # Service-to-Service Token
+    orchestrator_to_bot_token: str = ""
+    bot_df_url: str = "http://localhost:8003"
+
+    # Application settings
     app_env: str = "production"
     app_debug: bool = False
     log_level: str = "INFO"

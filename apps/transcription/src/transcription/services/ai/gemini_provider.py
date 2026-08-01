@@ -88,7 +88,9 @@ class GeminiProvider(AIProvider):
         try:
             return json.loads(cleaned)
         except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse Gemini JSON response: {e}. Raw: {text[:300]}")
+            logger.error(
+                f"Failed to parse Gemini JSON response: {e}. Raw: {text[:300]}"
+            )
             raise ValueError(f"AI returned invalid JSON: {e}") from e
 
     def _detect_mime(self, image_bytes: bytes) -> str:
@@ -106,7 +108,6 @@ class GeminiProvider(AIProvider):
         return "image/jpeg"  # default fallback
 
     def _calc_cost(self, input_tokens: int, output_tokens: int) -> float:
-        return (
-            (input_tokens / 1_000_000) * GEMINI_INPUT_COST_PER_1M
-            + (output_tokens / 1_000_000) * GEMINI_OUTPUT_COST_PER_1M
-        )
+        return (input_tokens / 1_000_000) * GEMINI_INPUT_COST_PER_1M + (
+            output_tokens / 1_000_000
+        ) * GEMINI_OUTPUT_COST_PER_1M

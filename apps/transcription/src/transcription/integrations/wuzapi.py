@@ -120,16 +120,18 @@ class WuzapiClient:
         except httpx.HTTPStatusError as exc:
             elapsed_ms = (time.perf_counter() - start) * 1000
             logger.error(
-                "\n\n".join([
-                    "WUZAPI HTTP Error",
-                    f"Request ID: {request_id}",
-                    f"Method: {method.upper()}",
-                    f"URL: {url}",
-                    f"Status: {exc.response.status_code}",
-                    f"Elapsed: {elapsed_ms:.0f} ms",
-                    f"Response Body:\n{self._safe_response_text(exc.response)}",
-                    f"Response Headers:\n{self._pretty(dict(exc.response.headers))}",
-                ])
+                "\n\n".join(
+                    [
+                        "WUZAPI HTTP Error",
+                        f"Request ID: {request_id}",
+                        f"Method: {method.upper()}",
+                        f"URL: {url}",
+                        f"Status: {exc.response.status_code}",
+                        f"Elapsed: {elapsed_ms:.0f} ms",
+                        f"Response Body:\n{self._safe_response_text(exc.response)}",
+                        f"Response Headers:\n{self._pretty(dict(exc.response.headers))}",
+                    ]
+                )
             )
             raise WuzapiError(
                 f"[{request_id}] HTTP {exc.response.status_code} from {url}"
@@ -139,43 +141,43 @@ class WuzapiClient:
         except httpx.ConnectTimeout as exc:
             elapsed_ms = (time.perf_counter() - start) * 1000
             logger.error(
-                "\n\n".join([
-                    "WUZAPI Connect Timeout",
-                    f"Request ID: {request_id}",
-                    "Could not establish a connection to the WUZAPI server.",
-                    f"URL: {url}",
-                    f"Timeout: {timeout} seconds",
-                    f"Elapsed: {elapsed_ms:.0f} ms",
-                    "Possible causes:\n"
-                    "- WUZAPI offline\n"
-                    "- Wrong IP\n"
-                    "- Wrong port\n"
-                    "- Oracle Security List\n"
-                    "- Ubuntu firewall\n"
-                    "- Docker port mapping",
-                ])
+                "\n\n".join(
+                    [
+                        "WUZAPI Connect Timeout",
+                        f"Request ID: {request_id}",
+                        "Could not establish a connection to the WUZAPI server.",
+                        f"URL: {url}",
+                        f"Timeout: {timeout} seconds",
+                        f"Elapsed: {elapsed_ms:.0f} ms",
+                        "Possible causes:\n"
+                        "- WUZAPI offline\n"
+                        "- Wrong IP\n"
+                        "- Wrong port\n"
+                        "- Oracle Security List\n"
+                        "- Ubuntu firewall\n"
+                        "- Docker port mapping",
+                    ]
+                )
             )
-            raise WuzapiError(
-                f"[{request_id}] Connect timeout reaching {url}"
-            ) from exc
+            raise WuzapiError(f"[{request_id}] Connect timeout reaching {url}") from exc
 
         # ---- httpx.ReadTimeout ----
         except httpx.ReadTimeout as exc:
             elapsed_ms = (time.perf_counter() - start) * 1000
             logger.error(
-                "\n\n".join([
-                    "WUZAPI Read Timeout",
-                    f"Request ID: {request_id}",
-                    "Connection established successfully.",
-                    "The server did not respond before the configured timeout.",
-                    f"URL: {url}",
-                    f"Timeout: {timeout} seconds",
-                    f"Elapsed: {elapsed_ms:.0f} ms",
-                ])
+                "\n\n".join(
+                    [
+                        "WUZAPI Read Timeout",
+                        f"Request ID: {request_id}",
+                        "Connection established successfully.",
+                        "The server did not respond before the configured timeout.",
+                        f"URL: {url}",
+                        f"Timeout: {timeout} seconds",
+                        f"Elapsed: {elapsed_ms:.0f} ms",
+                    ]
+                )
             )
-            raise WuzapiError(
-                f"[{request_id}] Read timeout from {url}"
-            ) from exc
+            raise WuzapiError(f"[{request_id}] Read timeout from {url}") from exc
 
         # ---- httpx.ConnectError ----
         except httpx.ConnectError as exc:
@@ -186,52 +188,52 @@ class WuzapiClient:
                 if hasattr(cause, "errno"):
                     errno_info = f"\nerrno: {cause.errno}"
             logger.error(
-                "\n\n".join([
-                    "WUZAPI Connection Error",
-                    f"Request ID: {request_id}",
-                    "Unable to establish TCP connection.",
-                    f"URL: {url}",
-                    f"Elapsed: {elapsed_ms:.0f} ms",
-                    f"Exception: {repr(exc)}{errno_info}",
-                ])
+                "\n\n".join(
+                    [
+                        "WUZAPI Connection Error",
+                        f"Request ID: {request_id}",
+                        "Unable to establish TCP connection.",
+                        f"URL: {url}",
+                        f"Elapsed: {elapsed_ms:.0f} ms",
+                        f"Exception: {repr(exc)}{errno_info}",
+                    ]
+                )
             )
-            raise WuzapiError(
-                f"[{request_id}] Connection error to {url}"
-            ) from exc
+            raise WuzapiError(f"[{request_id}] Connection error to {url}") from exc
 
         # ---- httpx.NetworkError (parent of ConnectError, but catch separately for others) ----
         except httpx.NetworkError as exc:
             elapsed_ms = (time.perf_counter() - start) * 1000
             logger.error(
-                "\n\n".join([
-                    "WUZAPI Network Error",
-                    f"Request ID: {request_id}",
-                    f"URL: {url}",
-                    f"Elapsed: {elapsed_ms:.0f} ms",
-                    f"Exception: {repr(exc)}",
-                    f"Traceback:\n{traceback.format_exc()}",
-                ])
+                "\n\n".join(
+                    [
+                        "WUZAPI Network Error",
+                        f"Request ID: {request_id}",
+                        f"URL: {url}",
+                        f"Elapsed: {elapsed_ms:.0f} ms",
+                        f"Exception: {repr(exc)}",
+                        f"Traceback:\n{traceback.format_exc()}",
+                    ]
+                )
             )
-            raise WuzapiError(
-                f"[{request_id}] Network error reaching {url}"
-            ) from exc
+            raise WuzapiError(f"[{request_id}] Network error reaching {url}") from exc
 
         # ---- httpx.RequestError (catch-all for remaining httpx errors) ----
         except httpx.RequestError as exc:
             elapsed_ms = (time.perf_counter() - start) * 1000
             logger.error(
-                "\n\n".join([
-                    "WUZAPI Request Error",
-                    f"Request ID: {request_id}",
-                    f"URL: {url}",
-                    f"Elapsed: {elapsed_ms:.0f} ms",
-                    f"Exception: {repr(exc)}",
-                    f"Traceback:\n{traceback.format_exc()}",
-                ])
+                "\n\n".join(
+                    [
+                        "WUZAPI Request Error",
+                        f"Request ID: {request_id}",
+                        f"URL: {url}",
+                        f"Elapsed: {elapsed_ms:.0f} ms",
+                        f"Exception: {repr(exc)}",
+                        f"Traceback:\n{traceback.format_exc()}",
+                    ]
+                )
             )
-            raise WuzapiError(
-                f"[{request_id}] Request error to {url}"
-            ) from exc
+            raise WuzapiError(f"[{request_id}] Request error to {url}") from exc
 
         # ---- Truly unexpected ----
         except Exception as exc:
@@ -248,20 +250,20 @@ class WuzapiClient:
             if json_payload:
                 context_parts.append(f"Payload:\n{self._pretty(json_payload)}")
             logger.error("\n\n".join(context_parts))
-            raise WuzapiError(
-                f"[{request_id}] Unexpected error calling {url}"
-            ) from exc
+            raise WuzapiError(f"[{request_id}] Unexpected error calling {url}") from exc
 
         # ---- Log successful response ----
         elapsed_ms = (time.perf_counter() - start) * 1000
         logger.info(
-            "\n\n".join([
-                "WUZAPI Response",
-                f"Request ID: {request_id}",
-                f"Status: {response.status_code}",
-                f"Elapsed: {elapsed_ms:.0f} ms",
-                f"Body:\n{self._safe_response_text(response)}",
-            ])
+            "\n\n".join(
+                [
+                    "WUZAPI Response",
+                    f"Request ID: {request_id}",
+                    f"Status: {response.status_code}",
+                    f"Elapsed: {elapsed_ms:.0f} ms",
+                    f"Body:\n{self._safe_response_text(response)}",
+                ]
+            )
         )
 
         return response

@@ -62,35 +62,58 @@ Legenda: `[ ]` pendente · `[x]` concluído · **P0** obrigatório.
 ## GATE 2 — Orquestrador / Cadastro
 
 ### Tasks
-- [ ] **G2-T01 P0** Endpoint webhook WUZAPI.
-- [ ] **G2-T02 P0** Assinatura/secret webhook.
-- [ ] **G2-T03 P0** Normalizador payload.
-- [ ] **G2-T04 P0** Resolver instance.
-- [ ] **G2-T05 P0** Resolver organization.
-- [ ] **G2-T06 P0** Resolver bot.
-- [ ] **G2-T07 P0** Normalizar telefone.
-- [ ] **G2-T08 P0** Verificar user.
-- [ ] **G2-T09 P0** Idempotência external message.
-- [ ] **G2-T10 P0** `/cadastro`.
-- [ ] **G2-T11 P0** Hash/HMAC registration secret.
-- [ ] **G2-T12 P0** Sanitizar cadastro dos logs.
-- [ ] **G2-T13 P0** Rate limit cadastro.
-- [ ] **G2-T14 P0** Impedir telefone em duas organizações.
-- [ ] **G2-T15 P0** Outbound WUZAPI.
+- [x] **G2-T01 P0** Endpoint webhook WUZAPI.
+- [x] **G2-T02 P0** Assinatura/secret webhook (`x-hmac-signature`).
+- [x] **G2-T03 P0** Normalizador payload.
+- [x] **G2-T04 P0** Resolver instance.
+- [x] **G2-T05 P0** Resolver organization.
+- [x] **G2-T06 P0** Resolver bot.
+- [x] **G2-T07 P0** Normalizar telefone (preservar 9º dígito e DDI).
+- [x] **G2-T08 P0** Verificar user.
+- [x] **G2-T09 P0** Idempotência por provider, external_instance_id e external_message_id.
+- [x] **G2-T10 P0** `/cadastro`.
+- [x] **G2-T11 P0** Hash/HMAC registration secret (`REGISTRATION_SECRET_PEPPER`).
+- [x] **G2-T12 P0** Sanitizar cadastro dos logs e payloads.
+- [x] **G2-T13 P0** Rate limit cadastro persistente concorrente (`registration_attempts` e `registration_rate_limits`).
+- [x] **G2-T14 P0** Impedir telefone em duas organizações (constraint de unicidade).
+- [x] **G2-T15 P0** Outbound WUZAPI.
+- [x] **G2-T16 P0** Configurar chave HMAC no WUZAPI.
+- [x] **G2-T17 P0** Reorganizar serviços para layout src (sem PYTHONPATH).
+- [x] **G2-T18 P0** Autenticação interna Orchestrator->Bot via token Bearer (`ORCHESTRATOR_TO_BOT_TOKEN`).
+- [ ] **G2-T19 P0** TBD-WUZAPI-HMAC-ENCODING de assinaturas (BLOCKED - Pendente de integração real).
+- [ ] **G2-T20 P0** TBD-WUZAPI-UNKNOWN-INSTANCE-OUTBOUND de instâncias desconhecidas (BLOCKED - Desabilitado por segurança).
+- [x] **G2-T21 P0** Isolar chamadas HTTP fora de transações ativas do banco.
+- [x] **G2-T22 P0** Inicialização atômica do rate limit (`INSERT ... ON CONFLICT DO NOTHING`).
+- [x] **G2-T23 P0** Implementar HMAC-SHA256 para PII nos logs com `LOG_PII_HASH_KEY`.
+- [x] **G2-T24 P0** Bloqueio geral para `USER_ORGANIZATION_MISMATCH` em qualquer tipo de mensagem.
 
 ### Tests
-- [ ] **G2-X01** Instância A → DF → BOT DF.
-- [ ] **G2-X02** Instância inexistente → rejeição.
-- [ ] **G2-X03** Desconhecido + arquivo → zero Gemini.
-- [ ] **G2-X04** Cadastro correto → active.
-- [ ] **G2-X05** Cadastro incorreto → não cadastra.
-- [ ] **G2-X06** Brute force → rate limit.
-- [ ] **G2-X07** Senha não aparece no log.
-- [ ] **G2-X08** Mesmo message ID → um evento.
-- [ ] **G2-X09** Telefone da org A → não entra na B.
-- [ ] **G2-X10** Webhook sem assinatura → 401/403.
+- [x] **G2-X01** Instância A → DF → BOT DF (ROUTED).
+- [x] **G2-X02** Instância inexistente → rejeição genérica e auditação (`INSTANCE_NOT_FOUND`).
+- [x] **G2-X03** Desconhecido + arquivo → zero Gemini (envio de instruções).
+- [x] **G2-X04** Cadastro correto → active (idempotente e resets rate limit).
+- [x] **G2-X05** Cadastro incorreto → não cadastra (grava falha persistente).
+- [x] **G2-X06** Brute force → rate limit persistente.
+- [x] **G2-X07** Senha não aparece no log.
+- [x] **G2-X08** Mesmo message ID de origem externa → um evento (idempotência e incremento de duplicate_count).
+- [x] **G2-X09** Telefone da org A → não entra na B (erro de unicidade).
+- [x] **G2-X10** Webhook sem assinatura ou assinatura inválida → 401.
+- [x] **G2-X11** Webhook com corpo alterado e assinatura antiga → 401.
+- [x] **G2-X12** Replay de webhook de instâncias diferentes com mesmo ID → eventos distintos.
+- [x] **G2-X13** Transação concorrente no cadastro cria apenas um usuário.
+- [x] **G2-X14** Autenticação interna Orchestrator->Bot via token Bearer.
+- [x] **G2-X15** Execução de testes via uv run pytest sem PYTHONPATH.
+- [x] **G2-X16** Replays concorrentes simultâneos de webhooks idênticos → processamento único.
+- [x] **G2-X17** Concorrência do rate limit de cadastro (SELECT FOR UPDATE).
+- [x] **G2-X18** Privacidade dos logs: sem número de telefone aberto ou senhas.
+- [x] **G2-X19** Sem transações abertas durantes requisições HTTP externas.
+- [x] **G2-X20** Concorrência de inicialização de rate limit na primeira falha.
+- [x] **G2-X21** Validação de HMAC-SHA256 de correlação de logs usando `LOG_PII_HASH_KEY`.
+- [x] **G2-X22** Mismatch de organização em mídias, cadastros e textos.
+- [x] **G2-X23** Usuário inativo ou suspenso recebe mensagem desativada e gera `USER_INACTIVE`.
+- [x] **G2-X24** Falha de notificação de WhatsApp preserva estado transacional de negócio.
 
-- [ ] **G2-APPROVED**
+- [x] **G2-APPROVED**
 
 ---
 

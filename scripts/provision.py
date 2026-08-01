@@ -13,10 +13,10 @@ from sqlalchemy.orm import Session
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from app.auth.hash import hash_api_key
-from app.core.config import get_settings
-from app.database.models import Application
-from app.database.session import Base, get_engine
+from app.auth.hash import hash_api_key  # noqa: E402
+from app.core.config import get_settings  # noqa: E402
+from app.database.models import Application  # noqa: E402
+from app.database.session import Base, get_engine  # noqa: E402
 
 
 ENV_PATH = PROJECT_ROOT / ".env"
@@ -24,9 +24,7 @@ ENV_PATH = PROJECT_ROOT / ".env"
 
 def parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description=(
-            "Provisiona a estrutura inicial do banco e gerencia aplicações."
-        )
+        description=("Provisiona a estrutura inicial do banco e gerencia aplicações.")
     )
 
     parser.add_argument(
@@ -41,10 +39,7 @@ def parse_arguments() -> argparse.Namespace:
 def generate_api_key(prefix: str = "sk_live_") -> str:
     """Gera uma API key criptograficamente segura."""
     alphabet = string.ascii_letters + string.digits
-    random_part = "".join(
-        secrets.choice(alphabet)
-        for _ in range(64)
-    )
+    random_part = "".join(secrets.choice(alphabet) for _ in range(64))
 
     return f"{prefix}{random_part}"
 
@@ -52,9 +47,7 @@ def generate_api_key(prefix: str = "sk_live_") -> str:
 def update_env_variable(name: str, value: str) -> None:
     """Atualiza ou adiciona uma variável no arquivo .env da raiz."""
     if not ENV_PATH.exists():
-        raise FileNotFoundError(
-            f"Arquivo de configuração não encontrado: {ENV_PATH}"
-        )
+        raise FileNotFoundError(f"Arquivo de configuração não encontrado: {ENV_PATH}")
 
     lines = ENV_PATH.read_text(encoding="utf-8").splitlines()
     prefix = f"{name}="
@@ -125,9 +118,7 @@ def create_application(
     session: Session,
     default_name: str,
 ) -> tuple[Application, str]:
-    name = input(
-        f"Nome da aplicação [{default_name}]: "
-    ).strip() or default_name
+    name = input(f"Nome da aplicação [{default_name}]: ").strip() or default_name
 
     raw_key = generate_api_key()
     key_hash = hash_api_key(raw_key)
@@ -169,10 +160,7 @@ def show_created_application(
 
     if env_updated:
         print()
-        print(
-            "WUZAPI_APPLICATION_ID foi atualizado "
-            "automaticamente no arquivo .env."
-        )
+        print("WUZAPI_APPLICATION_ID foi atualizado automaticamente no arquivo .env.")
 
 
 def provision(force_new_app: bool = False) -> None:
@@ -202,18 +190,13 @@ def provision(force_new_app: bool = False) -> None:
 
         if application_count > 0:
             print(
-                f"O banco já possui {application_count} "
-                "aplicação(ões) cadastrada(s)."
+                f"O banco já possui {application_count} aplicação(ões) cadastrada(s)."
             )
 
             if not force_new_app:
                 print()
-                print(
-                    "Nenhuma nova aplicação será criada."
-                )
-                print(
-                    "Use --new-app para cadastrar outra aplicação."
-                )
+                print("Nenhuma nova aplicação será criada.")
+                print("Use --new-app para cadastrar outra aplicação.")
                 return
 
             default_name = "Nova aplicação"
@@ -226,10 +209,7 @@ def provision(force_new_app: bool = False) -> None:
                 default=True,
             ):
                 print()
-                print(
-                    "Provisionamento concluído "
-                    "sem aplicação inicial."
-                )
+                print("Provisionamento concluído sem aplicação inicial.")
                 return
 
             default_name = "WhatsApp"

@@ -3,17 +3,20 @@
 > Convenience summary only. `TASKS_TESTS_GATES.md` is the operational source of truth.
 
 ## Current Gate
-**Gate 2 — Orquestrador / Cadastro**
+**Gate 3 — Transcrição**
 
 ## Last User-Approved Gate
-**Gate 1 — Fundação (Approved on 2026-07-31)**
+**Gate 2 — Orquestrador / Cadastro (Approved on 2026-08-01)**
 
 The standalone Transcription IA 1.0 was validated before this platform initiative, but the new architecture begins at Gate 0.
 
 ## Current Status
-- Gate 1 approved by user.
-- Proceeding with Gate 2 (Orquestrador / Cadastro).
-- Preparing implementation plan for webhook integrations and registration endpoints.
+- Gate 2 approved by user.
+- Gate 3 (Transcrição) planning phase initiated. Implementation plan under review.
+
+## Open integration TBDs:
+- TBD-WUZAPI-HMAC-ENCODING
+- TBD-WUZAPI-UNKNOWN-INSTANCE-OUTBOUND
 
 ## Current Architecture
 
@@ -68,4 +71,4 @@ Database Writer final implementation is blocked until the DF destination schema 
 Production release remains blocked until real CPF/CNPJ configuration and Security Gate requirements are complete.
 
 ## Recommended Next Action
-Create the implementation plan for Gate 2 (Orquestrador / Cadastro) and obtain user review.
+Obtain user approval for Gate 2 and proceed to Gate 3 (Transcrição).

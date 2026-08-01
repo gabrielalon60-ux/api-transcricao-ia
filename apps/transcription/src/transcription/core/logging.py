@@ -35,4 +35,3 @@ def sanitize_log_value(value: str | None) -> str:
     if not value:
         return ""
     return value.replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t")
-

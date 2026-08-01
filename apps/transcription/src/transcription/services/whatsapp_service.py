@@ -80,30 +80,37 @@ class WhatsAppService:
     async def _process(self, payload: dict) -> None:
         # ── 1. Detect Payload Type & Extract Data ──────────────────────
         is_evolution = "base64" in payload and isinstance(payload.get("event"), dict)
-        
+
         if is_evolution:
             info = payload["event"].get("Info", {})
             if info.get("IsFromMe", False):
                 logger.info("Ignoring outbound message sent by the bot itself.")
                 return
-                
+
             msg_type = info.get("MediaType", "")
             if msg_type not in {"image", "document"}:
-                logger.info(f"Unsupported Evolution media type '{msg_type}' — ignoring.")
+                logger.info(
+                    f"Unsupported Evolution media type '{msg_type}' — ignoring."
+                )
                 return
-                
+
             remote_jid = info.get("SenderAlt") or info.get("Sender") or ""
-            phone = remote_jid.replace("@s.whatsapp.net", "").replace("@g.us", "").replace("@lid", "")
+            phone = (
+                remote_jid.replace("@s.whatsapp.net", "")
+                .replace("@g.us", "")
+                .replace("@lid", "")
+            )
             mime_type = payload.get("mimeType", "")
             filename = payload.get("fileName", f"whatsapp_{msg_type}")
-            
+
             import base64
+
             try:
                 media_bytes = base64.b64decode(payload["base64"])
             except Exception as e:
                 logger.exception(f"Failed to decode base64: {e}")
                 return
-                
+
         else:
             # WUZAPI Logic
             event_type = payload.get("event") or payload.get("type") or ""

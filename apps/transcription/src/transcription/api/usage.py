@@ -20,8 +20,7 @@ router = APIRouter(prefix="/usage", tags=["Usage"])
 )
 def get_usage(
     current_app: Application = Depends(get_current_application),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     service = UsageService(db=db)
     return service.get_usage_summary(application_id=str(current_app.id))
-

@@ -39,16 +39,19 @@ class ResponseFormatter:
 
         # Field mapping: check common Portuguese and English keys
         field_map = [
-            ("sender",        ["remetente", "sender", "pagador", "emitente"]),
-            ("receiver",      ["destinatario", "receiver", "recebedor", "favorecido"]),
-            ("amount",        ["valor", "amount", "total", "value"]),
-            ("date",          ["data", "date", "data_pagamento", "data_emissao"]),
-            ("description",   ["descricao", "description", "historico", "observacao"]),
-            ("invoice_number",["numero_nota", "numero_nfe", "invoice_number", "chave_acesso"]),
-            ("cnpj",          ["cnpj", "cpf", "documento"]),
-            ("bank",          ["banco", "bank", "instituicao"]),
-            ("key",           ["chave_pix", "chave", "key"]),
-            ("transaction_id",["id_transacao", "transaction_id", "id_pagamento"]),
+            ("sender", ["remetente", "sender", "pagador", "emitente"]),
+            ("receiver", ["destinatario", "receiver", "recebedor", "favorecido"]),
+            ("amount", ["valor", "amount", "total", "value"]),
+            ("date", ["data", "date", "data_pagamento", "data_emissao"]),
+            ("description", ["descricao", "description", "historico", "observacao"]),
+            (
+                "invoice_number",
+                ["numero_nota", "numero_nfe", "invoice_number", "chave_acesso"],
+            ),
+            ("cnpj", ["cnpj", "cpf", "documento"]),
+            ("bank", ["banco", "bank", "instituicao"]),
+            ("key", ["chave_pix", "chave", "key"]),
+            ("transaction_id", ["id_transacao", "transaction_id", "id_pagamento"]),
         ]
 
         displayed_keys: set[str] = set()

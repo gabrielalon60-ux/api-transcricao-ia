@@ -43,7 +43,6 @@ app.include_router(usage.router)
 app.include_router(whatsapp.router)
 
 
-
 @app.get("/health", tags=["Health"])
 def health_check():
     return {"status": "ok", "version": app.version}

@@ -20,12 +20,11 @@ def get_current_application(
     Raises 403 if application is inactive.
     """
     from transcription.auth.hash import hash_api_key
+
     raw_api_key = credentials.credentials
     api_key_hash = hash_api_key(raw_api_key)
 
-    app = db.query(Application).filter(
-        Application.api_key_hash == api_key_hash
-    ).first()
+    app = db.query(Application).filter(Application.api_key_hash == api_key_hash).first()
 
     if not app:
         logger.warning("Auth failed: invalid API key attempt.")

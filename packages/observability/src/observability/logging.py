@@ -3,7 +3,10 @@ import json
 from datetime import datetime
 import contextvars
 
-correlation_id_var = contextvars.ContextVar("correlation_id", default=None)
+correlation_id_var: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "correlation_id", default=None
+)
+
 
 class JSONFormatter(logging.Formatter):
     def format(self, record):
@@ -17,6 +20,7 @@ class JSONFormatter(logging.Formatter):
         if corr_id:
             log_record["correlation_id"] = corr_id
         return json.dumps(log_record)
+
 
 def setup_logging():
     logger = logging.getLogger()

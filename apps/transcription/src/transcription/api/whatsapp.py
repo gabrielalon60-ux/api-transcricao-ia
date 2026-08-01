@@ -29,6 +29,7 @@ router = APIRouter(prefix="/whatsapp", tags=["WhatsApp"])
 # Cached singletons — created once, reused across requests
 # ---------------------------------------------------------------------------
 
+
 @lru_cache(maxsize=1)
 def _get_ai_provider() -> AIProvider:
     """Lazily creates and caches the AI provider (after .env is loaded)."""
@@ -53,8 +54,7 @@ def _get_whatsapp_application_id() -> uuid.UUID:
     raw = settings.wuzapi_application_id
     if not raw:
         raise RuntimeError(
-            "WUZAPI_APPLICATION_ID is not set. "
-            "Please add it to your .env file."
+            "WUZAPI_APPLICATION_ID is not set. Please add it to your .env file."
         )
     return uuid.UUID(raw)
 
@@ -62,6 +62,7 @@ def _get_whatsapp_application_id() -> uuid.UUID:
 # ---------------------------------------------------------------------------
 # Factory
 # ---------------------------------------------------------------------------
+
 
 def _build_whatsapp_service(db: Session) -> WhatsAppService:
     return WhatsAppService(
@@ -77,6 +78,7 @@ def _build_whatsapp_service(db: Session) -> WhatsAppService:
 # Endpoint
 # ---------------------------------------------------------------------------
 
+
 @router.post("/webhook", status_code=200, summary="WUZAPI webhook receiver")
 async def webhook(
     request: Request,
@@ -90,6 +92,7 @@ async def webhook(
     - No auth required — this endpoint is called server-to-server by WUZAPI.
     """
     import json
+
     try:
         content_type = request.headers.get("content-type", "")
         if "form-urlencoded" in content_type or "multipart/form-data" in content_type:
@@ -101,12 +104,14 @@ async def webhook(
                 payload = {}
         else:
             payload = await request.json()
-            
-        debug_payload = {k: v for k, v in payload.items() if k != 'base64'}
+
+        debug_payload = {k: v for k, v in payload.items() if k != "base64"}
         logger.info(f"Evolution API Payload: {debug_payload}")
     except Exception as exc:
         raw_body = await request.body()
-        logger.warning(f"Webhook failed to parse payload. Error: {exc} | Body: {str(raw_body)[:200]}")
+        logger.warning(
+            f"Webhook failed to parse payload. Error: {exc} | Body: {str(raw_body)[:200]}"
+        )
         return {"status": "ok"}
 
     logger.info("Webhook received")
