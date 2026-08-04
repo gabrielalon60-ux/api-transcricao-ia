@@ -1,4 +1,64 @@
-# Implementation Plan — Plataforma WhatsApp DF Holding — Fase 1
+# Implementation Plan – Transcription Alembic Architecture (Gate 3)
+
+## Status
+Gate 3 — Transcription is formally APPROVED and COMPLETE by explicit user approval on 2026-08-04 (America/Sao_Paulo), after formal application review result `REVIEW PASSED WITH FOLLOW-UPS`. The authoritative Gate 3 plan remains `.agents/IMPLEMENTATION_PLAN_GATE_3.md`.
+
+Migration source files now exist for the dedicated Transcription Alembic environment, Version 1.0 baseline, Gate 3 schema migration, verifiers, explicit Profile B reconciliation, and isolated source tests. They have passed disposable PostgreSQL 15 validation and formal application review. No production/preserved-database migration, stamp, downgrade, or reconciliation has been executed.
+
+## Goal
+Create a dedicated Alembic migration environment for the Transcription service, including configuration files, environment script, and two migrations:
+1. `transcription_1_0_baseline` – baseline reflecting the original Version 1.0 ORM schema.
+2. `gate3_schema` – deterministic migration matching the approved Gate 3 ORM model.
+
+The work must **not** modify the database, run any migrations, or touch other services.
+
+---
+
+## User Review Required
+> [!IMPORTANT]
+> Verify that the proposed file locations and names conform to your repository conventions. If you prefer alternative paths or filenames, let me know before proceeding.
+
+---
+
+## Open Questions
+- **Migration filenames**: Should the migration script names include a timestamp prefix (e.g., `20230801_01_transcription_1_0_baseline.py`), or follow Alembic's default auto‑generated naming?
+- **Version table name**: The plan uses `alembic_version_transcription`. Confirm this is the exact name you want, or propose a different one.
+- **Baseline content**: Do you want the baseline migration to contain explicit `op.create_table` statements for **all** transcription tables, or rely on `Base.metadata.create_all()` via a `declare_model` step? (Both are supported.)
+
+---
+
+## Proposed Changes
+### 1. Configuration
+- **[NEW]** `apps/transcription/alembic.ini`
+- **[NEW]** `apps/transcription/alembic/` directory with `env.py` and `script.py.mako` (copied from platform Alembic but adjusted).
+
+### 2. Environment script (`env.py`)
+- Set `version_table = "alembic_version_transcription"` for both online and offline contexts.
+- Import the transcription `Base` metadata to autogenerate migrations.
+
+### 3. Baseline migration
+- **[NEW]** `apps/transcription/alembic/versions/<revision_id>_transcription_1_0_baseline.py`
+- Contains `upgrade()` that creates all tables/constraints as they existed in the original 1.0 model.
+- `downgrade()` drops those tables.
+
+### 4. Gate 3 migration
+- **[NEW]** `apps/transcription/alembic/versions/<revision_id>_gate3_schema.py`
+- Implements the deterministic changes introduced in Gate 3 (e.g., composite `UniqueConstraint` on `usage_logs`, enum additions, column defaults).
+
+---
+
+## Verification Plan
+### Automated Tests
+- Run `python -m compileall apps/transcription/alembic` to ensure syntax validity.
+- Execute `alembic -c apps/transcription/alembic.ini heads --verbose` to confirm the revision graph is correct.
+- Run `alembic -c apps/transcription/alembic.ini history --verbose` and inspect the output.
+
+### Manual Verification
+- The user (or CI) can run a dry‑run upgrade on a fresh SQLite DB: `alembic -c apps/transcription/alembic.ini upgrade head --sql` to view generated SQL.
+
+---
+
+*Source files have been created for review. Database adoption/migration remains a separate approval step.*
 
 
 ## GATE 0 — Congelamento do desenho

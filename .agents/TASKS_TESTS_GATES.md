@@ -118,46 +118,121 @@ Legenda: `[ ]` pendente · `[x]` concluído · **P0** obrigatório.
 ---
 
 ## GATE 3 — Transcrição
+Plano Oficial: [.agents/IMPLEMENTATION_PLAN_GATE_3.md](file:///c:/Projetos%20VS%20Code/API%20Transcrição%20IA/.agents/IMPLEMENTATION_PLAN_GATE_3.md)
+
+Document-type authority: Gate 3 supports six business document categories represented by four technical runtime labels by explicit product decision. Mapping: Nota fiscal -> `invoice`; Cupom fiscal -> `invoice`; Comprovante PIX -> `pix_receipt`; Boleto -> `bank_receipt`; Pedido -> `commercial_document`; Orçamento -> `commercial_document`. `unknown` is fallback-only, not a supported business category. The six fixture tasks remain separate business acceptance tests; they do not imply six separate runtime schemas.
+
+System-prompt authority: `MAX_SYSTEM_PROMPT_SIZE_BYTES=262144` raw bytes (256 KiB), inclusive boundary; strict UTF-8; empty/whitespace-only invalid; startup validation required; shared runtime defensive validation required; validated prompt cached once per process; prompt/path/size changes require restart; runtime failure maps to `SYSTEM_PROMPT_INVALID`, HTTP 503, `retryable=false`; `/internal/extract` preserves Transaction A before defensive runtime prompt loading and persists terminal `FAILED` if the prompt becomes invalid after Transaction A.
+
+Gate 3 approval: formally approved by explicit user instruction on 2026-08-04 (America/Sao_Paulo) after formal review result `REVIEW PASSED WITH FOLLOW-UPS`. Gate 3 application implementation is APPROVED and Gate 3 is COMPLETE. Production deployment, production database adoption, and WUZAPI production media-retention verification were not performed. Gate 4 was not started.
 
 ### Tasks
-- [ ] **G3-T01 P0** Adaptar serviço 1.0 ao contrato interno.
-- [ ] **G3-T02 P0** Auth interna.
-- [ ] **G3-T03 P0** Validar imagem/PDF.
-- [ ] **G3-T04 P0** Limite de tamanho configurável.
-- [ ] **G3-T05 P0** Validar assinatura/MIME real.
-- [ ] **G3-T06 P0** Nota fiscal.
-- [ ] **G3-T07 P0** PIX.
-- [ ] **G3-T08 P0** Boleto.
-- [ ] **G3-T09 P0** Cupom fiscal.
-- [ ] **G3-T10 P0** Pedido.
-- [ ] **G3-T11 P0** Orçamento.
-- [ ] **G3-T12 P0** raw_extraction.
-- [ ] **G3-T13 P0** normalized_data.
-- [ ] **G3-T14 P0** quality_flags.
-- [ ] **G3-T15 P0** usage/tokens.
-- [ ] **G3-T16 P0** SHA-256.
-- [ ] **G3-T17 P0** Cleanup.
-- [ ] **G3-T18 P0** Timeout.
-- [ ] **G3-T19 P0** 2 retries técnicos.
-- [ ] **G3-T20 P0** Verificar `wuzapi/files`.
+- [x] **G3-T01 P0** Rota interna `/internal/extract` e compatibilidade com rota legado `/extract`. DONE — internal route implemented; legacy route compatibility covered by focused Gate 3 tests and formal review.
+- [x] **G3-T02 P0** Autenticação com token direcional `BOT_TO_TRANSCRIPTION_TOKEN` na rota interna. DONE — fails closed, timing-safe comparison, and no token leakage; covered by focused auth tests and formal review.
+- [x] **G3-T03 P0** Validação estrutural de imagens (Pillow) e PDFs (pypdf) contra arquivos corrompidos/criptografados. DONE — covered by document-validation tests and focused Gate 3 suite.
+- [x] **G3-T04 P0** Limite de tamanho dinâmico e leitura em chunks limitados (até `max_upload_size_bytes + 1`). DONE — bounded upload streaming and 413 behavior covered by focused tests.
+- [x] **G3-T05 P0** Validação estrita de Magic Bytes (JPEG, PNG, WEBP, PDF) e coerência com MIME declarado. DONE — MIME/signature matrix covered by focused tests.
+- [x] **G3-T06 P0** Extração de campos estruturados da Nota fiscal. DONE — fake-provider business fixture persisted/replayed as `invoice`; semantic Gemini OCR accuracy not claimed.
+- [x] **G3-T07 P0** Extração de campos estruturados do PIX. DONE — fake-provider business fixture persisted/replayed as `pix_receipt`; semantic Gemini OCR accuracy not claimed.
+- [x] **G3-T08 P0** Extração de campos estruturados do Boleto. DONE — fake-provider business fixture persisted/replayed as `bank_receipt`; semantic Gemini OCR accuracy not claimed.
+- [x] **G3-T09 P0** Extração de campos estruturados do Cupom fiscal. DONE — fake-provider business fixture persisted/replayed as `invoice`; semantic Gemini OCR accuracy not claimed.
+- [x] **G3-T10 P0** Extração de campos estruturados do Pedido. DONE — fake-provider business fixture persisted/replayed as `commercial_document`; semantic Gemini OCR accuracy not claimed.
+- [x] **G3-T11 P0** Extração de campos estruturados do Orçamento. DONE — fake-provider business fixture persisted/replayed as `commercial_document`; semantic Gemini OCR accuracy not claimed.
+- [x] **G3-T12 P0** Mapeamento do response contract contendo `raw_extraction` e `normalization` higienizados. DONE — response contract covered by six business fixtures, replay tests, and formal review.
+- [x] **G3-T13 P0** Resolução package-aware do prompt central e validação no startup. PASS — authority-resolution: `importlib.resources` is not frozen; behavior is package/default prompt loading independent of repository CWD, package-data inclusion, explicit prompt path support, shared startup/runtime validation, and no repository-relative dependency. Evidence: prompt package-data config, PromptService tests, lifespan tests, focused Gate 3 suite.
+- [x] **G3-T14 P0** Mapeamento de `quality_flags` e detecção de baixa qualidade. DONE — provider response mapping and fake-provider fixtures cover persisted `quality_flags`; semantic OCR accuracy not claimed.
+- [x] **G3-T15 P0** Persistência de estatísticas de tokens e cálculo de custo via Decimal com base em tabelas de preços versionadas. DONE — nullable token usage, Decimal cost, NUMERIC(18,8), and usage logs covered by focused tests, migration tests, and Supabase evidence.
+- [x] **G3-T16 P0** Geração incremental do hash `file_sha256` durante a leitura (apenas para auditoria metadata). DONE — SHA-256 audit metadata covered by focused tests and six-fixture persistence evidence.
+- [x] **G3-T17 P0** Limpeza determinística de mídias em memória/temporárias em bloco `finally`. DONE — upload close/temp cleanup covered by focused tests; WUZAPI original-media retention remains production-operational follow-up outside Gate 3 completion.
+- [x] **G3-T18 P0** Controle de timeouts de upload (total e chunk) e tratamento de exceções com códigos de erro sanitizados. DONE — upload/document/provider sanitized error behavior covered by focused tests and formal review.
+- [x] **G3-T19 P0** Política de até 2 retries para falhas técnicas transitórias do Gemini. DONE — provider retry policy covered by focused tests; no Gemini call performed in closure.
+- [x] **G3-T20 P0** Exclusão explícita de componentes de fila FIFO (propriedade do Gate 4). DONE — formal review confirmed no queue/FIFO/persistent retry/Gate 4 behavior.
+- [x] **G3-T21 P0** Nota de rastreamento do diff preliminar de `extract.py`. DONE — legacy route compatibility and shared prompt/provider changes reviewed and tracked.
+- [x] **G3-T22 P0** Parseamento de metadados via campo multipart JSON string (`metadata`). DONE — strict multipart JSON metadata parsing covered by focused route tests.
+- [x] **G3-T23 P0** Propagação do cabeçalho de rastreamento `correlation_id` no contrato interno. DONE — approved metadata contract and persistence/replay behavior covered by focused tests and formal review.
+- [x] **G3-T24 P0** Controle de idempotência de requisições baseado no `request_id` único no banco. DONE — replay/concurrency behavior covered by focused tests and isolated Supabase PostgreSQL evidence.
+- [x] **G3-T25 P0** Sem retentativas de extração automáticas no Bot DF (exclusão de retries duplicados). DONE — formal review confirmed no Bot retry worker/FIFO behavior introduced in Gate 3.
+- [x] **G3-T26 P0** TBD-TRANSCRIPTION-SCHEMA-MAPPING para inspeção física das tabelas legadas. DONE — schema mapping resolved (`.agents/transcription_schema_mapping.md`), ORM models implemented and locally validated.
+- [x] **G3-T27 P0** Persistência de logs de uso e estatísticas por tentativa do provedor. DONE — per-attempt usage logs covered by focused tests, migration-source tests, and isolated Supabase evidence.
+- [x] **G3-T28 P0** Validação estrutural de arquivos sob isolamento de subprocesso descartável com terminação real. DONE — subprocess timeout/terminate/kill/IPC validation covered by focused tests.
+- [x] **G3-T29 P0** Validação de imagem Pillow (MAX_PIXELS, DecompressionBombWarning como erro, verify). DONE — image validation matrix covered by focused tests.
+- [x] **G3-T30 P0** Detecção e rejeição de conteúdo ativo em PDFs (`PDF_ACTIVE_CONTENT_UNSUPPORTED`). DONE — structured PDF active-content traversal covered by focused tests.
+- [x] **G3-T31 P0** Limite de concorrência local de validações com acquisition timeout (`VALIDATION_CAPACITY_EXCEEDED`). DONE — semaphore acquisition timeout covered by focused tests; process-local only, not Gate 4 queueing.
+- [x] **G3-T32 P0** Transporte serializável para subprocesso (bytes vs path temporário pelo limite max memory). DONE — subprocess transport and temp materialization/cleanup covered by focused tests.
+- [x] **G3-T33 P0** Canal de IPC para retorno do ValidationResult e tratamento de crash/IPC error. DONE — malformed IPC/crash behavior covered by focused tests.
+- [x] **G3-T34 P0** Validação de assinatura WEBP RIFF e payload size plausível. DONE — WEBP signature behavior covered by focused tests.
+- [x] **G3-T35 P0** PDF active-content traversal cycle/depth e object limits. DONE — PDF traversal depth/object limits covered by focused tests.
+- [x] **G3-T36 P0** Tratamento determinístico de fallback FAILED e PERSISTENCE_ERROR (incluindo recovery). DONE — failed replay, persistence failure, and compensation evidence covered by focused tests and isolated Supabase evidence.
+- [x] **G3-T37 P0** Verificar se Docker/Uvicorn inicia o serviço Transcription com exatamente 1 worker por réplica. PASS — Docker Compose transcription command explicitly uses `uvicorn transcription.main:app ... --workers 1`; static regression test asserts the committed command remains one-worker. This protects process-local validation concurrency only and is not Gate 4 queueing.
+
+### Migration Source Review Artifacts
+- Dedicated Transcription Alembic source exists under `apps/transcription/alembic/` with `alembic_version_transcription`.
+- Canonical migration chain exists: `transcription_1_0_baseline` → `gate3_schema`.
+- Read-only Profile A, Profile B, and post-Gate-3 schema verifiers exist under `apps/transcription/src/transcription/database/migrations/`.
+- Explicit Profile B reconciliation source exists and requires Profile B verifier preflight.
+- Isolated source tests exist in `tests/test_transcription_migration_sources.py`.
+- Validation executed: Python compileall PASS; import check PASS; Ruff PASS; mypy PASS for new verifier modules; focused migration-source tests PASS; dedicated Alembic heads/history PASS; offline SQL generated and statically inspected.
+- Disposable PostgreSQL validation executed on PostgreSQL 15 in isolated Docker infrastructure only: `localhost:55432/transcription_gate3_test`, container `transcription_gate3_migration_test`, volume `transcription_gate3_migration_test_data`.
+- Disposable validation PASS: fresh migration to head, historical baseline, canonical Gate 3 upgrade with legacy rows, Profile A verifier/stamp/upgrade, Profile B verifier/reconciliation/stamp, unsupported drift rejection, enum order, cost conversion, attempt-number backfill, uniqueness replacement, post-state verifiers.
+- Full pytest suite PASS with `DATABASE_URL`, `TRANSCRIPTION_DATABASE_URL`, and `GATE3_DISPOSABLE_DATABASE_URL` bound to the disposable PostgreSQL target: 43 passed.
+- Source defects found and corrected during disposable validation: Gate 3 enum insertion order now uses `SUCCEEDED BEFORE FAILED`; verifiers fail closed for missing columns instead of raising `KeyError`; Profile B reconciliation rolls back read-only preflight transaction before DDL.
+- Disposable container and volume removed after validation.
+- Preserved PostgreSQL Profile B adoption runbook prepared at `.agents/GATE_3_PROFILE_B_ADOPTION_RUNBOOK.md`.
+- Adoption evidence template prepared at `.agents/GATE_3_PROFILE_B_ADOPTION_EVIDENCE_TEMPLATE.md`.
+- Final safety/correctness audit of the preserved-database adoption runbook completed; documentation hardened for explicit identity checks, command safety, hold ordering, transaction ownership, and numeric conversion evidence.
+- Preserved-database adoption execution remains unauthorized and not performed.
+- No preserved-database upgrade, stamp, downgrade, reconciliation, DDL, or DML was executed.
+- No Gate 3 adoption/migration application task is marked complete by this source-only review.
+
+### Application Implementation Progress
+- Internal application implementation has begun without marking Gate 3 complete.
+- Added internal `/internal/extract` route source, `BOT_TO_TRANSCRIPTION_TOKEN` authentication source, metadata response schemas, subprocess-backed document validation source, and two-transaction internal extraction service source.
+- Transcription runtime DB configuration now uses `TRANSCRIPTION_DATABASE_URL`; no `DATABASE_URL` fallback is used by the Transcription session.
+- Startup `Base.metadata.create_all()` was removed; Alembic remains schema authority.
+- Provider contract and Gemini adapter now preserve nullable usage, Decimal cost, strict supported signatures, and no unknown-token-to-zero conversion.
+- Legacy `/extract` remains present with API-key authentication; shared usage logging now supplies explicit `attempt_number=1` for Gate 3 schema compatibility.
+- ORM alignment note: `Application.api_key_hash` is mapped to the historical baseline column name `applications.api_key` to preserve legacy API-key auth against the approved migration source without changing migration history.
+- Verification executed for this application implementation: compileall PASS; Ruff PASS; mypy PASS on touched Gate 3 source files; focused Gate 3 source/application tests PASS (11 passed); existing safe test suite PASS (35 passed) with destructive PostgreSQL migration integration excluded.
+- Second-pass verification expanded focused route/auth/metadata/validator/retry/compensation/legacy mapping coverage. Latest evidence: compileall PASS; Ruff PASS; mypy PASS on touched Gate 3 modules; focused Gate 3 + migration-source tests PASS (37 passed); safe full suite PASS (61 passed) with destructive PostgreSQL migration integration excluded.
+- Safe isolated Supabase integration PASS against sanitized target `db.btdkssnuwdtjnmcpfxjm.supabase.co:5432/postgres`; `alembic_version_transcription = gate3_schema`; fake provider only; inserted 3 request UUID rows, 1 extraction row, and 4 usage rows; cleanup removed all 3 request IDs and verified 0 remaining request rows for those IDs.
+- Gate 3 remains incomplete: the full required authentication, metadata, file-validation, idempotency/concurrency, persistence-failure, provider retry, legacy regression, and Supabase integration acceptance test matrix has not all been implemented or executed.
+- Remaining incomplete acceptance areas include real PostgreSQL same-ID concurrency through simultaneous route/service execution, full HTTP-level legacy `/extract` regression matrix, six document-type extraction fixtures, deeper generated PDF object/depth-limit fixtures, and startup prompt packaging tests.
+- Third-pass metadata contract clarification recorded in `.agents/IMPLEMENTATION_PLAN_GATE_3.md` and `.agents/transcription_schema_mapping.md`: current internal metadata uses `request_id`, `bot_instance_id`, `correlation_id`, `received_at`, and `source=WHATSAPP`; obsolete older fields are not part of the current internal route contract.
+- Third-pass local verification PASS: compileall, Ruff, mypy on touched Gate 3 modules, focused Gate 3 + migration-source tests (42 passed), and safe full suite excluding destructive PostgreSQL migration integration (66 passed).
+- Third-pass Supabase isolated-row verification PASS: Transaction A visibility, same-ID race using PostgreSQL uniqueness (`[200, 409]`, exactly 1 provider call), physical replays for `PROCESSING`/`FAILED`/`PERSISTENCE_FAILED`/`SUCCEEDED` with 0 provider calls, scoped inserts `(requests=6, extractions=3, usage_logs=2)`, scoped deletes `(requests=6, extractions=3, usage_logs=2)`, and final total Transcription table counts all 0.
+- Remaining incomplete acceptance areas now include real PostgreSQL Transaction B failure injection/compensation-failure physical proof, six approved document-type fixtures, deeper generated PDF object/depth-limit fixtures, complete subprocess cancellation/forced-kill/temp-cleanup matrix, and startup prompt packaging tests.
+- Fourth-pass Transaction B/compensation verification PASS on isolated Supabase test database. Production code now explicitly flushes Transaction B before commit and uses a separate SQLAlchemy session/transaction for compensation. Deterministic test-only session-proxy failures covered success extraction insert, success usage insert, success flush, handled-failure usage insert, handled-failure flush, compensation flush failure, and compensation commit failure.
+- Fourth-pass physical evidence: Transaction B failures left no extraction or usage remnants; compensation success physically committed `PERSISTENCE_FAILED`; compensation failure physically left `PROCESSING`; provider call counts remained the original attempt counts; failed replay reconstruction returned exact persisted error mappings for `UNSUPPORTED_FILE_TYPE`, `PROVIDER_TEMPORARY_ERROR`, `INTERNAL_ERROR`, and `PERSISTENCE_ERROR` with zero provider calls. Scoped Supabase cleanup removed all 11 test requests; final total Transcription table counts all 0.
+- Fourth-pass sanitization defect corrected: compensation failure logs no longer emit stack traces. Supabase recheck confirmed sanitized single-line compensation failure log, HTTP 500 `PERSISTENCE_ERROR`, physical status `PROCESSING`, and no extraction/usage remnants.
+- Six approved business document-category fixture acceptance passed using the approved four runtime labels and fake providers only. This proves orchestration/contract mapping, persistence, usage attempt logging, SHA-256 audit metadata, and replay behavior; it does not prove semantic Gemini OCR accuracy.
 
 ### Tests
-- [ ] **G3-X01** Fixture NF.
-- [ ] **G3-X02** Fixture PIX.
-- [ ] **G3-X03** Fixture boleto.
-- [ ] **G3-X04** Fixture cupom.
-- [ ] **G3-X05** Fixture pedido.
-- [ ] **G3-X06** Fixture orçamento.
-- [ ] **G3-X07** Arquivo inválido.
-- [ ] **G3-X08** Arquivo oversized.
-- [ ] **G3-X09** MIME spoof.
-- [ ] **G3-X10** Timeout → retry.
-- [ ] **G3-X11** Falha definitiva → cleanup.
-- [ ] **G3-X12** Sucesso → cleanup.
-- [ ] **G3-X13** Tokens persistidos.
-- [ ] **G3-X14** Binário/base64 ausente dos logs.
+- [x] **G3-X01** Fixture Nota Fiscal (verificar mapeamento e integridade). PASS — fake-provider business fixture persisted/replayed as `invoice`.
+- [x] **G3-X02** Fixture PIX (verificar mapeamento e integridade). PASS — fake-provider business fixture persisted/replayed as `pix_receipt`.
+- [x] **G3-X03** Fixture Boleto (verificar mapeamento e integridade). PASS — fake-provider business fixture persisted/replayed as `bank_receipt`.
+- [x] **G3-X04** Fixture Cupom (verificar mapeamento e integridade). PASS — fake-provider business fixture persisted/replayed as `invoice`.
+- [x] **G3-X05** Fixture Pedido (verificar mapeamento e integridade). PASS — fake-provider business fixture persisted/replayed as `commercial_document`.
+- [x] **G3-X06** Fixture Orçamento (verificar mapeamento e integridade). PASS — fake-provider business fixture persisted/replayed as `commercial_document`.
+- [x] **G3-X07** Separação de autenticação: token interno vs chave de API externa. PASS — focused tests cover internal token rejection on legacy route and legacy API-key separation.
+- [x] **G3-X08** Leitura limitada por streaming e rejeição imediata com HTTP 413. PASS — focused upload tests cover bounded streaming and `FILE_TOO_LARGE`.
+- [x] **G3-X09** Validação de Magic Bytes contra MIME spoofing. PASS — focused validation tests cover signature/MIME mismatch.
+- [x] **G3-X10** Encriptação PDF e limites de páginas rejeitados localmente como não-retryable. PASS — focused PDF validation tests cover encrypted/page-limit rejection.
+- [x] **G3-X11** Decompressão de imagem extrema e limites de pixel (decompression bomb defense). PASS — focused image validation tests cover Pillow pixel/decompression defenses.
+- [x] **G3-X12** Limpeza de arquivos temporários garantida em falhas, timeouts e sucessos. PASS — focused temp-cleanup tests cover success/failure/timeout cleanup.
+- [x] **G3-X13** Duplicação de SHA-256 sob IDs de requisição diferentes é aceita. PASS — focused persistence tests cover SHA-256 as audit metadata only, not dedupe authority.
+- [x] **G3-X14** Persistência Decimal de uso estável e sem recálculo retroativo. PASS — focused and migration tests cover Decimal/NUMERIC usage persistence.
+- [x] **G3-X15** Carregamento de prompt do pacote local e falha no startup se ausente. PASS — package/default prompt loads outside repo CWD; explicit prompt path works; exact 262144-byte boundary accepted; 262145 bytes, missing, directory, invalid UTF-8, empty/whitespace-only, and malformed/zero/negative size configuration fail safely; startup validates prompt; runtime defensive failure maps to `SYSTEM_PROMPT_INVALID` HTTP 503 and persists internal `FAILED` after Transaction A.
+- [x] **G3-X16** Isolamento da fila do Bot DF (sem controle de concorrência ou FIFO no Gate 3). PASS — formal review confirmed no queue/FIFO/persistent retry worker was introduced.
+- [x] **G3-X17** Até 2 retries técnicos aplicados apenas em erros transitórios do provedor. PASS — focused retry tests cover transient-only retry behavior.
+- [x] **G3-X18** Auditoria de logs sem dados sensíveis, tokens ou binários de arquivo. PASS — focused sanitization tests and formal diff/security review found no secret/content logging issue.
+- [x] **G3-X19** Teste de assinatura de PDF estrita em b"%PDF-" no byte zero e falhas com lixo. PASS — focused PDF signature tests cover strict `%PDF-` at byte zero.
+- [x] **G3-X20** Teste de parseamento multipart JSON metadata estruturado e rejeição de UUIDs inválidos. PASS — focused metadata tests cover strict JSON, UUID validation, timezone, source, and extra-field rejection.
+- [x] **G3-X21** Teste de idempotência de request_id concorrente (HTTP 409 em progresso e replays). PASS — focused replay tests and isolated Supabase concurrency evidence cover this behavior.
+- [x] **G3-X22** Teste de isolamento de processo no parser de arquivos com timeout. PASS — focused subprocess timeout/terminate/kill tests cover this behavior.
+- [x] **G3-X23** Teste de detecção e rejeição de scripts/conteúdo ativo no PDF. PASS — focused structured PDF active-content tests cover this behavior.
+- [x] **G3-X24** Teste de compatibilidade de API Keys legadas em rotas externas. PASS — focused legacy `/extract` API-key regression tests cover this behavior.
 
-- [ ] **G3-APPROVED**
+- [x] **G3-APPROVED** APPROVED — explicit user approval recorded on 2026-08-04 (America/Sao_Paulo). Gate 3 application implementation APPROVED; Gate 3 COMPLETE. Production deployment/database adoption not performed. Gate 4 NOT STARTED.
 
 ---
 
