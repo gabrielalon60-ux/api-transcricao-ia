@@ -62,10 +62,18 @@ class ExtractionService:
             # Step 5 — Persist UsageLog
             usage = UsageLog(
                 request_id=request_id,
+                attempt_number=1,
+                provider=getattr(result, "provider", "google"),
                 model_name=result.model_name,
+                status="SUCCEEDED",
                 input_tokens=result.input_tokens,
                 output_tokens=result.output_tokens,
+                total_tokens=result.total_tokens,
+                cached_tokens=result.cached_tokens,
+                usage_status=result.usage_status,
                 estimated_cost=result.estimated_cost,
+                currency=result.currency,
+                pricing_version=result.pricing_version,
             )
             self.db.add(usage)
 

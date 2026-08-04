@@ -10,10 +10,31 @@ from transcription.services.ai.provider import AIProvider
 from transcription.schemas.requests import ExtractionResponse
 from transcription.core.logging import get_logger, sanitize_log_value
 from transcription.core.config import get_settings
+from transcription.services.prompt_service import PromptConfigurationError
 
 logger = get_logger(__name__)
 
 router = APIRouter(prefix="/extract", tags=["Extraction"])
+
+
+def validate_magic_bytes(data: bytes) -> str:
+    """
+    Validates magic bytes against supported document signatures.
+    Returns the resolved MIME type or raises ValueError.
+    """
+    if len(data) < 4:
+        raise ValueError("File is too small to determine format.")
+    
+    if data[:3] == b"\xff\xd8\xff":
+        return "image/jpeg"
+    if data[:8] == b"\x89PNG\r\n\x1a\n":
+        return "image/png"
+    if data[:4] == b"RIFF" and len(data) >= 12 and data[8:12] == b"WEBP":
+        return "image/webp"
+    if data[:4] == b"%PDF":
+        return "application/pdf"
+        
+    raise ValueError("Invalid or unsupported file format signature.")
 
 
 @lru_cache(maxsize=1)
@@ -61,6 +82,16 @@ async def extract(
             detail=f"File too large. Maximum allowed size is {settings.max_upload_size_mb} MB.",
         )
 
+    # Validate Magic Bytes / real MIME signature
+    try:
+        real_mime = validate_magic_bytes(image_bytes)
+        logger.info(f"Verified magic bytes: real_mime={real_mime}")
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        )
+
     service = ExtractionService(db=db, ai_provider=_get_ai_provider())
 
     try:
@@ -68,6 +99,11 @@ async def extract(
             application_id=current_app.id,
             image_bytes=image_bytes,
             image_filename=file.filename,
+        )
+    except PromptConfigurationError:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="SYSTEM_PROMPT_INVALID",
         )
     except ValueError as exc:
         raise HTTPException(
