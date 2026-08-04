@@ -1,4 +1,5 @@
 import uuid
+from decimal import Decimal
 import enum
 from datetime import datetime, timezone
 from sqlalchemy import (
@@ -6,10 +7,11 @@ from sqlalchemy import (
     Boolean,
     DateTime,
     Integer,
-    Float,
+    Numeric,
     Text,
     ForeignKey,
     Enum as SAEnum,
+    UniqueConstraint,
 )
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -25,6 +27,8 @@ class RequestStatus(str, enum.Enum):
     PROCESSING = "processing"
     COMPLETED = "completed"
     FAILED = "failed"
+    SUCCEEDED = "succeeded"
+    PERSISTENCE_FAILED = "persistence_failed"
 
 
 class Application(Base):
@@ -35,7 +39,7 @@ class Application(Base):
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     api_key_hash: Mapped[str] = mapped_column(
-        String(255), unique=True, nullable=False, index=True
+        "api_key", String(255), unique=True, nullable=False, index=True
     )
     active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
@@ -54,7 +58,7 @@ class Request(Base):
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     application_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("applications.id"), nullable=False, index=True
+        UUID(as_uuid=True), ForeignKey("applications.id"), nullable=True, index=True
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, nullable=False
@@ -66,7 +70,21 @@ class Request(Base):
         SAEnum(RequestStatus), default=RequestStatus.PENDING, nullable=False
     )
     processing_time_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
-
+    # Additional metadata fields (nullable for compatibility)
+    correlation_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    event_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    organization_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    instance_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    user_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    received_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    source: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    processing_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_persistence_error_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    detected_mime: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    declared_mime: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    file_size_bytes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    file_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
     application: Mapped["Application"] = relationship(
         "Application", back_populates="requests"
     )
@@ -87,7 +105,7 @@ class Extraction(Base):
     request_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("requests.id"), nullable=False, unique=True
     )
-    prompt: Mapped[str] = mapped_column(Text, nullable=False)
+    prompt: Mapped[str] = mapped_column(Text, nullable=True)
     response_json: Mapped[dict] = mapped_column(JSONB, nullable=False)
     image_reference: Mapped[str | None] = mapped_column(String(512), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
@@ -104,14 +122,27 @@ class UsageLog(Base):
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     request_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("requests.id"), nullable=False, unique=True
+        UUID(as_uuid=True), ForeignKey("requests.id"), nullable=False
     )
+    attempt_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    provider: Mapped[str | None] = mapped_column(String(100), nullable=True)
     model_name: Mapped[str] = mapped_column(String(100), nullable=False)
-    input_tokens: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    output_tokens: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    estimated_cost: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    status: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    input_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    output_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    total_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    cached_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    usage_status: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    estimated_cost: Mapped[Decimal] = mapped_column(Numeric(18, 8), nullable=True)
+    currency: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    pricing_version: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    sanitized_error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, nullable=False
     )
-
+    __table_args__ = (
+        UniqueConstraint('request_id', 'attempt_number', name='uq_usage_logs_request_attempt'),
+    )
     request: Mapped["Request"] = relationship("Request", back_populates="usage_log")

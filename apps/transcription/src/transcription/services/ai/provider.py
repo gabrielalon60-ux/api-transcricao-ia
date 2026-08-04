@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from decimal import Decimal
 from typing import Any
 
 
@@ -9,9 +10,15 @@ class ExtractionResult:
 
     data: dict[str, Any]
     model_name: str
-    input_tokens: int
-    output_tokens: int
-    estimated_cost: float
+    input_tokens: int | None
+    output_tokens: int | None
+    total_tokens: int | None = None
+    cached_tokens: int | None = None
+    estimated_cost: Decimal | None = None
+    provider: str = "google"
+    usage_status: str | None = None
+    pricing_version: str | None = None
+    currency: str | None = None
 
 
 class AIProvider(ABC):

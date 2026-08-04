@@ -18,7 +18,7 @@ def _get_engine():
     if _engine is None:
         settings = get_settings()
         _engine = create_engine(
-            settings.database_url,
+            settings.resolved_transcription_database_url,
             pool_pre_ping=True,
             pool_size=10,
             max_overflow=20,

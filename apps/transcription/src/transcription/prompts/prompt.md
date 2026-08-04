@@ -16,7 +16,7 @@ Here are the supported documents and the exact JSON schema you must return for e
 }
 
 ### 2. Commercial Document
-Includes: Sales Orders, Quotes, Commercial Proposals, Purchase Orders, Technical Orders, Budget Documents.
+Includes: Pedidos, Pedido de compra, Pedido de venda, Orçamentos, Cotações, Propostas comerciais, Sales Orders, Quotes, Commercial Proposals, Purchase Orders, Technical Orders, Budget Documents, and equivalent commercial order/quotation documents.
 {
     "document_type": "commercial_document",
     "supplier_name": null,
@@ -29,7 +29,7 @@ Includes: Sales Orders, Quotes, Commercial Proposals, Purchase Orders, Technical
 }
 
 ### 3. Electronic Invoice (NF-e)
-Includes: Brazilian Electronic Invoices (NF-e), DANFE documents, Product Invoices, Service Invoices containing fiscal information.
+Includes: Nota fiscal, Brazilian Electronic Invoices (NF-e), DANFE documents, NFS-e where supported by this schema, Product Invoices, Service Invoices containing fiscal information, NFC-e, cupom fiscal SAT, cupom fiscal ECF, and equivalent fiscal sales receipts containing issuer, date, and transaction value.
 {
     "document_type": "invoice",
     "supplier_name": null,
@@ -42,7 +42,7 @@ Includes: Brazilian Electronic Invoices (NF-e), DANFE documents, Product Invoice
 }
 
 ### 4. Bank Receipt
-Includes: Bank Slips (Boletos), Deposit Receipts, Payment Receipts, Wire Transfer Confirmations, Payment Confirmations.
+Includes: Boletos, comprovantes bancários, comprovantes de pagamento, Deposit Receipts, Payment Receipts, bank transfers that are not classified as PIX, Wire Transfer Confirmations, and Payment Confirmations.
 {
     "document_type": "bank_receipt",
     "payer_name": null,
