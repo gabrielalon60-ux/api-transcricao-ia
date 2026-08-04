@@ -44,6 +44,7 @@ ENV/
 .env.development
 .env.production
 .env.test
+.env.gate3.local
 
 # O modelo de configuração deve permanecer versionado
 !.env.example
