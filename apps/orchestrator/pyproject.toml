@@ -6,7 +6,8 @@ dependencies = [
     "contracts",
     "security",
     "observability",
-    "db"
+    "db",
+    "tzdata"
 ]
 
 [tool.uv.sources]

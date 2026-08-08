@@ -293,33 +293,54 @@ Status:
 ---
 
 ## GATE 5 — Regras BOT DF
+Plano Oficial: [.agents/IMPLEMENTATION_PLAN_GATE_5.md](file:///c:/Projetos%20VS%20Code/API%20Transcrição%20IA/.agents/IMPLEMENTATION_PLAN_GATE_5.md)
+
+Status:
+- Gate 4 overall: APPROVED / COMPLETE / FROZEN on 2026-08-08.
+- Gate 5 planning: APPROVED on 2026-08-08.
+- Gate 5 implementation plan: APPROVED.
+- Gate 5 implementation: COMPLETE.
+- Gate 5 verification: PASSED.
+- Gate 5 overall: APPROVED on 2026-08-08.
+- Gate 5 migrations: NONE REQUIRED.
+- Gate 6: NOT STARTED.
+- Persistent/staging/production/remote migration execution: NOT AUTHORIZED.
 
 ### Tasks
-- [ ] **G5-T01 P0** Máquina de estados.
-- [ ] **G5-T02 P0** amount > 0.
-- [ ] **G5-T03 P0** document_date.
-- [ ] **G5-T04 P0** fallback timestamp.
-- [ ] **G5-T05 P0** date_source.
-- [ ] **G5-T06 P0** Lista CPF/CNPJ placeholder.
-- [ ] **G5-T07 P0** payer DF → expense.
-- [ ] **G5-T08 P0** receiver DF → income.
-- [ ] **G5-T09 P0** ambos → ambiguous.
-- [ ] **G5-T10 P0** nenhum → unknown.
-- [ ] **G5-T11 P0** Mensagem final.
+- [x] **G5-T01 P0** Máquina de estados. (`BusinessRulesEvaluatorService` + `FinancialEvaluationResult`)
+- [x] **G5-T02 P0** amount > 0. (`validate_amount`)
+- [x] **G5-T03 P0** document_date. (`resolve_transaction_date` with `America/Sao_Paulo`)
+- [x] **G5-T04 P0** fallback timestamp. (MESSAGE_TIMESTAMP fallback)
+- [x] **G5-T05 P0** date_source. (`"DOCUMENT"` or `"MESSAGE_TIMESTAMP"`)
+- [x] **G5-T06 P0** Lista CPF/CNPJ placeholder. (`config.df_holding_identifiers` + `normalize_digits`)
+- [x] **G5-T07 P0** payer DF → expense. (`classify_direction`)
+- [x] **G5-T08 P0** receiver DF → income. (`classify_direction`)
+- [x] **G5-T09 P0** ambos → ambiguous. (`classify_direction`)
+- [x] **G5-T10 P0** nenhum → unknown. (`classify_direction`)
+- [x] **G5-T11 P0** Mensagem final. (`format_success_message`)
 
 ### Tests
-- [ ] **G5-X01** DF payer → expense.
-- [ ] **G5-X02** DF receiver → income.
-- [ ] **G5-X03** Ambos → não grava automaticamente.
-- [ ] **G5-X04** Nenhum → não grava automaticamente.
-- [ ] **G5-X05** amount 0 → não grava.
-- [ ] **G5-X06** amount ausente → pergunta futura.
-- [ ] **G5-X07** Data do documento usada.
-- [ ] **G5-X08** Data ausente → timestamp.
-- [ ] **G5-X09** Orçamento sem data → timestamp.
-- [ ] **G5-X10** Item completo não pede confirmação.
+- [x] **G5-X01** DF payer → expense. (63 tests passed)
+- [x] **G5-X02** DF receiver → income.
+- [x] **G5-X03** Ambos → não grava automaticamente.
+- [x] **G5-X04** Nenhum → não grava automaticamente.
+- [x] **G5-X05** amount 0 → não grava.
+- [x] **G5-X06** amount ausente → pergunta futura.
+- [x] **G5-X07** Data do documento usada.
+- [x] **G5-X08** Data ausente → timestamp.
+- [x] **G5-X09** Orçamento sem data → timestamp.
+- [x] **G5-X10** Item completo não pede confirmação.
 
-- [ ] **G5-APPROVED**
+- [x] **G5-APPROVED = true**
+
+### Final Verification Evidence
+- Gate 5 tests: **63 passed, 0 skipped, 0 failed, 0 errors**.
+- Frozen Gate 4 regression: **210 passed, 0 skipped, 0 failed, 0 errors**.
+- Complete project suite: **375 passed, 0 skipped, 0 failed, 0 errors**.
+- Static verification: **compileall PASS; Ruff PASS; mypy PASS; git diff --check PASS**.
+- Reproducibility: **PostgreSQL 15 disposable test environment used**; `tzdata` declared in `apps/orchestrator/pyproject.toml`; `uv.lock` updated; `ZoneInfo("America/Sao_Paulo")` verified after frozen dependency sync.
+- Scope integrity: `fifo_worker_service.py` unchanged; zero WUZAPI integration; zero Database Writer/PersistenceService integration; zero Gate 5 migrations.
+- Database safety: no persistent, staging, production, or remote database touched.
 
 ---
 

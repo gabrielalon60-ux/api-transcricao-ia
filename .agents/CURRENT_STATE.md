@@ -3,36 +3,35 @@
 > Convenience summary only. `TASKS_TESTS_GATES.md` is the operational source of truth.
 
 ## Current Gate
-**Gate 4 — Fila persistente (APPROVED / COMPLETE)**
+**Gate 5 — Regras BOT DF (APPROVED / COMPLETE)**
 
 ## Last User-Approved Gate
-**Gate 4 — Fila persistente (Approved on 2026-08-08, America/Sao_Paulo)**
+**Gate 5 — Regras BOT DF (Approved on 2026-08-08, America/Sao_Paulo)**
 
 The standalone Transcription IA 1.0 was validated before this platform initiative, but the new architecture begins at Gate 0.
 
 ## Current Status
-- Gate 4 HOLD 2: APPROVED by explicit user instruction on 2026-08-04.
-- Gate 4 HOLD 3: APPROVED by explicit user instruction on 2026-08-04.
-- Phase 4A (Platform DB Schema & Migration): APPROVED.
-- Phase 4B (Durable Ingestion Path in Orchestrator): APPROVED on 2026-08-04.
-- Phase 4C (Concurrent Extraction Dispatch & READY Transition): APPROVED by explicit user instruction on 2026-08-04.
-- Platform Gate 4 migration sources (`7a8f9c1b2d3e`, `8b9a0c1d2e3f`, `9c0a1b2c3d4e`): APPROVED.
-- Phase 4D (FIFO Worker Claim Engine & Monotonic Blocked Execution): APPROVED on 2026-08-05.
-- Phase 4E (Business Worker Heartbeat, Stale Recovery, Interaction Cycle & User Answer Ledger): APPROVED on 2026-08-05.
-- Migration `9e0a1b2c3d5e` source: APPROVED.
-- Migration `9f1b2c3d4e5f` source: APPROVED.
-- Platform migration `a1b2c3d4e5f6` source: APPROVED.
-- Database Writer migration `a1b2c3d4e5f6` source: APPROVED.
-- Phase 4F (Database Writer Integration & Gate 4 Final Closure): APPROVED on 2026-08-08.
-- HOLD 4: APPROVED.
-- HOLD 5: APPROVED on 2026-08-05.
-- Gate 4 overall: APPROVED / COMPLETE.
+- Gate 4 overall: APPROVED / COMPLETE / FROZEN on 2026-08-08.
+- Gate 5 planning: APPROVED on 2026-08-08.
+- Gate 5 implementation plan: APPROVED.
+- Gate 5 implementation: COMPLETE.
+- Gate 5 verification: PASSED.
+- Gate 5 overall: APPROVED on 2026-08-08.
+- G5-APPROVED: true.
+- Gate 5 migrations: NONE REQUIRED.
+- Gate 5 tests: 63 passed, 0 skipped, 0 failed, 0 errors.
+- Frozen Gate 4 regression: 210 passed, 0 skipped, 0 failed, 0 errors.
+- Complete project suite: 375 passed, 0 skipped, 0 failed, 0 errors.
+- Final static verification: compileall PASS; Ruff PASS; mypy PASS; git diff --check PASS.
+- Reproducibility: PostgreSQL 15 disposable environment used; `tzdata` declared in `apps/orchestrator/pyproject.toml`; `uv.lock` updated; `ZoneInfo("America/Sao_Paulo")` verified after frozen dependency sync.
+- Scope integrity: `fifo_worker_service.py` unchanged; zero WUZAPI integration; zero Database Writer/PersistenceService integration; zero Gate 5 migrations.
+- Database safety: no persistent, staging, production, or remote database touched during final verification.
+- Gate 6: NOT STARTED.
 - Persistent migration execution: NOT AUTHORIZED.
 - Staging migration execution: NOT AUTHORIZED.
 - Production migration execution: NOT AUTHORIZED.
 - Remote database execution: NOT AUTHORIZED.
-- Gate 4 baseline verified: Phase 4F (98 passed), Gate 4 (210 passed), Full Project Suite (300 passed, 12 skipped*, 0 failed, 0 errors).
-- Next Step: Await explicit user instruction for next authorized Gate or roadmap step.
+- Next Step: Prepare the approved Gate 5 worktree for commit. Do not start Gate 6 without separate user authorization.
 - Gate 4: COMPLETE.
 - Gate 3 — Transcription was explicitly approved by the user on 2026-08-04 at 00:20:08 -03:00 (America/Sao_Paulo), based on the formal application review result `REVIEW PASSED WITH FOLLOW-UPS`.
 - Gate 3 application implementation: APPROVED.
@@ -123,4 +122,4 @@ Database Writer final implementation is blocked until the DF destination schema 
 Production release remains blocked until real CPF/CNPJ configuration and Security Gate requirements are complete.
 
 ## Recommended Next Action
-Prepare a clean Gate 3 commit from the reconciled worktree. Do not start Gate 4 until the user separately authorizes Gate 4 work.
+Prepare a clean Gate 5 commit from the approved worktree. Do not start Gate 6 until the user separately authorizes Gate 6 work.

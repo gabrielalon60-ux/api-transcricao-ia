@@ -31,6 +31,15 @@ class Settings(BaseSettings):
     persistence_base_backoff_seconds: int = Field(default=5, gt=0)
     persistence_max_backoff_seconds: int = Field(default=300, gt=0)
 
+    # DF Holding CPF/CNPJ Identifiers (PRD RN-012 placeholders)
+    # Normalized digit-only strings. Production replacement: G10-T01.
+    df_holding_identifiers: list[str] = [
+        "00000000000000",  # CNPJ_1
+        "11111111111111",  # CNPJ_2
+        "00000000000",     # CPF_1
+        "11111111111",     # CPF_2
+    ]
+
     # Application settings
     app_env: str = "production"
     app_debug: bool = False
