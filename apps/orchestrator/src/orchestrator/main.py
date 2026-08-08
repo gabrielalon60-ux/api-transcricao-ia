@@ -20,8 +20,72 @@ from security.hash import verify_secret, hash_pii
 from orchestrator.config import get_settings
 from orchestrator.wuzapi import WuzapiClient, WuzapiError
 from orchestrator.rate_limit import check_and_record_registration
+from orchestrator.payload import compute_payload_hash
+from orchestrator.services.ingestion_service import ingest_event_transaction
 
 logger = logging.getLogger(__name__)
+
+
+def extract_file_info(payload: dict, message_type: str, text_content: str | None) -> dict:
+    data = payload.get("data") or {}
+    message = data.get("message") or {}
+    if not message and "messages" in data:
+        message = data["messages"][0] if data["messages"] else {}
+
+    mime_type = "text/plain" if message_type == "text" else "image/jpeg"
+    file_size = 0
+    file_sha256 = None
+    original_filename = None
+
+    if "imageMessage" in message:
+        img = message["imageMessage"]
+        mime_type = img.get("mimetype") or "image/jpeg"
+        file_size = img.get("fileLength") or img.get("fileSizeBytes") or 0
+        file_sha256 = img.get("fileSha256") or img.get("fileHash")
+    elif "documentMessage" in message:
+        doc = message["documentMessage"]
+        mime_type = doc.get("mimetype") or "application/pdf"
+        file_size = doc.get("fileLength") or doc.get("fileSizeBytes") or 0
+        file_sha256 = doc.get("fileSha256") or doc.get("fileHash")
+        original_filename = doc.get("fileName") or doc.get("title")
+    elif payload.get("file_sha256"):
+        file_sha256 = payload.get("file_sha256")
+        file_size = payload.get("file_size", 0)
+        mime_type = payload.get("file_mime_type", mime_type)
+        original_filename = payload.get("original_filename")
+
+    media_ref = None
+    if message_type in ("image", "pdf"):
+        media_msg = message.get("imageMessage") or message.get("documentMessage") or {}
+        direct_path = media_msg.get("directPath") or media_msg.get("direct_path")
+
+        media_ref = {
+            "version": "1.0",
+            "provider": payload.get("provider", "WUZAPI"),
+            "external_instance_id": payload.get("instanceId") or data.get("instanceId"),
+            "external_message_id": (message.get("key") or {}).get("id") or payload.get("external_message_id"),
+            "direct_path": direct_path,
+            "expected_sha256": file_sha256,
+            "expected_size": file_size,
+            "mime_type": mime_type,
+        }
+
+    if not file_sha256:
+        content_to_hash = text_content or json.dumps(payload, sort_keys=True)
+        file_sha256 = hashlib.sha256(content_to_hash.encode("utf-8")).hexdigest()
+
+    return {
+        "provider": payload.get("provider") or "WUZAPI",
+        "external_instance_id": payload.get("instanceId") or "inst-1",
+        "external_message_id": (message.get("key") or {}).get("id") or payload.get("external_message_id") or "msg-1",
+        "message_type": message_type,
+        "file_mime_type": mime_type,
+        "file_size": int(file_size),
+        "file_sha256": file_sha256,
+        "original_filename": original_filename,
+        "media_ref": media_ref,
+        "text_content": text_content,
+    }
 
 
 @asynccontextmanager
@@ -155,9 +219,15 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
     correlation_id = correlation_id_var.get() or str(uuid.uuid4())
     correlation_id_var.set(correlation_id)
 
-    # 2. Transaction A (Atomic Event Insertion / Idempotency Check)
+    # 2. Compute canonical payload hash
+    file_info = extract_file_info(payload, message_type, text_content)
+    current_payload_hash = compute_payload_hash(file_info)
+
+    # Atomic Event Insertion with Savepoint Protection
+    nested_sp = db.begin_nested()
     try:
         event = Event(
+            id=str(uuid.uuid4()),
             correlation_id=correlation_id,
             provider=provider,
             external_instance_id=external_instance_id,
@@ -165,12 +235,13 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
             message_type=message_type,
             status="RECEIVED",
             duplicate_count=0,
+            payload_hash=current_payload_hash,
         )
         db.add(event)
-        db.commit()
+        nested_sp.commit()
     except sa.exc.IntegrityError:
-        db.rollback()
-        # Atomic duplicate update directly in SQL
+        nested_sp.rollback()
+        # Savepoint rolled back; acquire existing Event row FOR UPDATE
         db.execute(
             sa.text(
                 "UPDATE events "
@@ -186,14 +257,21 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
                 "ext_msg_id": external_message_id,
             },
         )
-        db.commit()
-        logger.info(
-            f"Duplicate webhook received for {external_message_id}. Idempotently ignored."
+        event = (
+            db.query(Event)
+            .filter_by(
+                provider=provider,
+                external_instance_id=external_instance_id,
+                external_message_id=external_message_id,
+            )
+            .first()
         )
-        return {"status": "ok", "detail": "idempotent duplicate"}
-
-    # Refresh event to get the ID
-    db.refresh(event)
+        if message_type == "text":
+            db.commit()
+            return {"status": "ok", "detail": "idempotent duplicate"}
+        logger.info(
+            f"Duplicate webhook received for {external_message_id}. Processing duplicate replay."
+        )
 
     # 3. Non-Transactional Parsing / Identity Resolution
     # Resolve internal Instance
@@ -305,9 +383,117 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
                 db.commit()
             return {"status": "ok", "detail": "already_active"}
 
-        # Authorized routing path
-        await route_active_user_event(db, event, settings, payload)
-        return {"status": "ok", "detail": "routed"}
+        # Phase 4E Command Routing: /cancelar
+        if (
+            message_type == "text"
+            and text_content
+            and text_content.strip().lower() == "/cancelar"
+        ):
+            from orchestrator.services.cancel_command_handler import handle_cancel_command
+            cancelled_item = handle_cancel_command(
+                db=db,
+                organization_id=instance.organization_id,
+                instance_id=instance.id,
+                user_id=user.id,
+                event_id=event.id,
+                correlation_id=correlation_id,
+            )
+            if cancelled_item:
+                event.status = "USER_CANCELLED"
+                db.commit()
+                try:
+                    wuzapi = WuzapiClient()
+                    await wuzapi.send_text_message(
+                        phone_norm,
+                        "🛑 Atendimento cancelado com sucesso.",
+                    )
+                except WuzapiError as e:
+                    event.error_code = "WUZAPI_SEND_FAILED"
+                    event.error_message_sanitized = str(e)
+                    db.commit()
+                return {"status": "ok", "detail": "user_cancelled"}
+            else:
+                event.status = "CANCEL_NO_WAITING_ITEM"
+                db.commit()
+                try:
+                    wuzapi = WuzapiClient()
+                    await wuzapi.send_text_message(
+                        phone_norm,
+                        "Nenhum atendimento pendente para cancelar.",
+                    )
+                except WuzapiError as e:
+                    event.error_code = "WUZAPI_SEND_FAILED"
+                    event.error_message_sanitized = str(e)
+                    db.commit()
+                return {"status": "ok", "detail": "cancel_no_waiting_item"}
+
+        # Phase 4E Interaction Routing: Inbound Answer for WAITING_USER_INPUT
+        from db.models import ProcessingItem
+        waiting_item = (
+            db.query(ProcessingItem)
+            .filter(
+                ProcessingItem.organization_id == instance.organization_id,
+                ProcessingItem.instance_id == instance.id,
+                ProcessingItem.user_id == user.id,
+                ProcessingItem.status == "WAITING_USER_INPUT",
+            )
+            .first()
+        )
+
+        if message_type == "text" and waiting_item:
+            from orchestrator.services.user_interaction_service import apply_user_answer
+            ans = apply_user_answer(db, inbound_event_id=event.id, raw_answer_text=text_content or "")
+            if ans.status == "APPLIED":
+                event.status = "ANSWER_APPLIED"
+                db.commit()
+                try:
+                    wuzapi = WuzapiClient()
+                    await wuzapi.send_text_message(
+                        phone_norm,
+                        "✅ Resposta recebida. Continuando processamento...",
+                    )
+                except WuzapiError as e:
+                    event.error_code = "WUZAPI_SEND_FAILED"
+                    event.error_message_sanitized = str(e)
+                    db.commit()
+                return {"status": "ok", "detail": "answer_applied"}
+            else:
+                event.status = "ANSWER_REJECTED"
+                db.commit()
+                try:
+                    wuzapi = WuzapiClient()
+                    await wuzapi.send_text_message(
+                        phone_norm,
+                        "⚠️ Resposta não compreendida. Por favor, tente novamente.",
+                    )
+                except WuzapiError as e:
+                    event.error_code = "WUZAPI_SEND_FAILED"
+                    event.error_message_sanitized = str(e)
+                    db.commit()
+                return {"status": "ok", "detail": "answer_rejected"}
+
+        # Phase 4E Text Routing: Text message without waiting item
+        if message_type == "text" and not waiting_item:
+            event.status = "TEXT_NO_WAITING_ITEM"
+            db.commit()
+            return {"status": "ok", "detail": "text_no_waiting_item"}
+
+        # Authorized routing path — Phase 4B FIFO queue ingestion for media/document
+        file_info = extract_file_info(payload, message_type, text_content)
+        ingest_result = ingest_event_transaction(
+            db=db,
+            event=event,
+            organization_id=instance.organization_id,
+            instance_id=instance.id,
+            user_id=user.id,
+            file_info=file_info,
+            max_queue_limit=settings.max_queue_items_per_conversation,
+        )
+        return {
+            "status": "ok",
+            "detail": ingest_result.outcome.value.lower(),
+            "sequence": ingest_result.sequence,
+        }
 
     else:
         # User does not exist

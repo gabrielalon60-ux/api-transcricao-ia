@@ -51,3 +51,26 @@ class WuzapiClient:
             raise WuzapiError(
                 f"Failed to send WhatsApp message via WUZAPI: {exc}"
             ) from exc
+
+    async def download_media(self, phone: str, external_message_id: str, direct_path: str | None = None) -> bytes:
+        """Downloads source media binary from WUZAPI via POST /chat/media/download."""
+        if not self.base_url or not self.token:
+            raise WuzapiError("WuzapiClient is not fully configured (missing base URL or token).")
+
+        url = f"{self.base_url}/chat/media/download"
+        payload = {
+            "phone": phone,
+            "message_id": external_message_id,
+            "direct_path": direct_path,
+        }
+
+        try:
+            async with httpx.AsyncClient(timeout=30) as client:
+                response = await client.post(url, headers=self._headers, json=payload)
+                response.raise_for_status()
+                if len(response.content) > 10 * 1024 * 1024:
+                    raise WuzapiError("Media download exceeded maximum size limit of 10MB.")
+                return response.content
+        except httpx.HTTPError as exc:
+            logger.error(f"WUZAPI media download failed: {exc}")
+            raise WuzapiError(f"Failed to download media via WUZAPI: {exc}") from exc

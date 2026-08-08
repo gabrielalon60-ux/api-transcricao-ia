@@ -3,21 +3,43 @@
 > Convenience summary only. `TASKS_TESTS_GATES.md` is the operational source of truth.
 
 ## Current Gate
-**Gate 4 — Fila persistente (NOT STARTED)**
+**Gate 4 — Fila persistente (APPROVED / COMPLETE)**
 
 ## Last User-Approved Gate
-**Gate 3 — Transcrição (Approved on 2026-08-04, America/Sao_Paulo)**
+**Gate 4 — Fila persistente (Approved on 2026-08-08, America/Sao_Paulo)**
 
 The standalone Transcription IA 1.0 was validated before this platform initiative, but the new architecture begins at Gate 0.
 
 ## Current Status
+- Gate 4 HOLD 2: APPROVED by explicit user instruction on 2026-08-04.
+- Gate 4 HOLD 3: APPROVED by explicit user instruction on 2026-08-04.
+- Phase 4A (Platform DB Schema & Migration): APPROVED.
+- Phase 4B (Durable Ingestion Path in Orchestrator): APPROVED on 2026-08-04.
+- Phase 4C (Concurrent Extraction Dispatch & READY Transition): APPROVED by explicit user instruction on 2026-08-04.
+- Platform Gate 4 migration sources (`7a8f9c1b2d3e`, `8b9a0c1d2e3f`, `9c0a1b2c3d4e`): APPROVED.
+- Phase 4D (FIFO Worker Claim Engine & Monotonic Blocked Execution): APPROVED on 2026-08-05.
+- Phase 4E (Business Worker Heartbeat, Stale Recovery, Interaction Cycle & User Answer Ledger): APPROVED on 2026-08-05.
+- Migration `9e0a1b2c3d5e` source: APPROVED.
+- Migration `9f1b2c3d4e5f` source: APPROVED.
+- Platform migration `a1b2c3d4e5f6` source: APPROVED.
+- Database Writer migration `a1b2c3d4e5f6` source: APPROVED.
+- Phase 4F (Database Writer Integration & Gate 4 Final Closure): APPROVED on 2026-08-08.
+- HOLD 4: APPROVED.
+- HOLD 5: APPROVED on 2026-08-05.
+- Gate 4 overall: APPROVED / COMPLETE.
+- Persistent migration execution: NOT AUTHORIZED.
+- Staging migration execution: NOT AUTHORIZED.
+- Production migration execution: NOT AUTHORIZED.
+- Remote database execution: NOT AUTHORIZED.
+- Gate 4 baseline verified: Phase 4F (98 passed), Gate 4 (210 passed), Full Project Suite (300 passed, 12 skipped*, 0 failed, 0 errors).
+- Next Step: Await explicit user instruction for next authorized Gate or roadmap step.
+- Gate 4: COMPLETE.
 - Gate 3 — Transcription was explicitly approved by the user on 2026-08-04 at 00:20:08 -03:00 (America/Sao_Paulo), based on the formal application review result `REVIEW PASSED WITH FOLLOW-UPS`.
 - Gate 3 application implementation: APPROVED.
 - Gate 3: COMPLETE.
 - Production deployment: NOT PERFORMED.
 - Production database adoption: NOT PERFORMED.
 - WUZAPI production original-media retention verification: PENDING OPERATIONAL FOLLOW-UP outside Gate 3 application completion.
-- Gate 4: NOT STARTED.
 - Gate 2 approved by user.
 - Gate 3 (Transcrição) official technical plan consolidated into single authoritative document: [.agents/IMPLEMENTATION_PLAN_GATE_3.md](file:///c:/Projetos%20VS%20Code/API%20Transcrição%20IA/.agents/IMPLEMENTATION_PLAN_GATE_3.md).
 - Schema mapping resolved (`.agents/transcription_schema_mapping.md`).

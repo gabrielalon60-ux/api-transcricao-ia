@@ -237,32 +237,58 @@ Gate 3 approval: formally approved by explicit user instruction on 2026-08-04 (A
 ---
 
 ## GATE 4 — Fila persistente
+Plano Oficial: [.agents/IMPLEMENTATION_PLAN_GATE_4.md](file:///c:/Projetos%20VS%20Code/API%20Transcrição%20IA/.agents/IMPLEMENTATION_PLAN_GATE_4.md)
+Schema Mapping: [.agents/gate4_queue_schema_mapping.md](file:///c:/Projetos%20VS%20Code/API%20Transcrição%20IA/.agents/gate4_queue_schema_mapping.md)
+Decisões Arquiteturais: [.agents/GATE_4_DECISIONS_REQUIRED.md](file:///c:/Projetos%20VS%20Code/API%20Transcrição%20IA/.agents/GATE_4_DECISIONS_REQUIRED.md)
+
+Status:
+- HOLD 2: APPROVED by explicit user instruction on 2026-08-04.
+- HOLD 3: APPROVED by explicit user instruction on 2026-08-04.
+- Phase 4A (Platform DB Schema & Migration): APPROVED.
+- Phase 4B (Durable Ingestion Path in Orchestrator): APPROVED on 2026-08-04.
+- Phase 4C (Concurrent Extraction Dispatch & READY Transition): APPROVED by explicit user instruction on 2026-08-04.
+- Platform Gate 4 migration sources (`7a8f9c1b2d3e`, `8b9a0c1d2e3f`, `9c0a1b2c3d4e`): APPROVED.
+- Phase 4D (FIFO Worker Claim Engine & Monotonic Blocked Execution): APPROVED on 2026-08-05.
+- Phase 4E (Business Worker Heartbeat, Stale Recovery, Interaction Cycle & User Answer Ledger): APPROVED on 2026-08-05.
+- Migration `9e0a1b2c3d5e` source: APPROVED.
+- Migration `9f1b2c3d4e5f` source: APPROVED.
+- Platform migration `a1b2c3d4e5f6` source: APPROVED.
+- Database Writer migration `a1b2c3d4e5f6` source: APPROVED.
+- Phase 4F (Database Writer Integration & Gate 4 Final Closure): APPROVED by explicit user instruction on 2026-08-08.
+- HOLD 4: APPROVED.
+- HOLD 5: APPROVED on 2026-08-05.
+- Gate 4 overall: APPROVED / COMPLETE on 2026-08-08.
+- Persistent migration execution: NOT AUTHORIZED.
+- Staging migration execution: NOT AUTHORIZED.
+- Production migration execution: NOT AUTHORIZED.
+- Remote database execution: NOT AUTHORIZED.
+- Gate 4 baseline verified: Phase 4F (98 passed), Gate 4 (210 passed), Full Project Suite (300 passed, 12 skipped*, 0 failed, 0 errors).
 
 ### Tasks
-- [ ] **G4-T01 P0** processing_items.
-- [ ] **G4-T02 P0** Sequence por conversa.
-- [ ] **G4-T03 P0** Estados.
-- [ ] **G4-T04 P0** Extração paralela limitada.
-- [ ] **G4-T05 P0** READY após extração.
-- [ ] **G4-T06 P0** Worker FIFO.
-- [ ] **G4-T07 P0** Um ACTIVE por conversa.
-- [ ] **G4-T08 P0** Lock transacional.
-- [ ] **G4-T09 P0** MAX_QUEUE configurável.
-- [ ] **G4-T10 P0** Recovery após restart.
-- [ ] **G4-T11 P0** Falha libera fila.
+- [x] **G4-T01 P0** processing_items.
+- [x] **G4-T02 P0** Sequence por conversa.
+- [x] **G4-T03 P0** Estados.
+- [x] **G4-T04 P0** Extração paralela limitada.
+- [x] **G4-T05 P0** READY após extração.
+- [x] **G4-T06 P0** Worker FIFO.
+- [x] **G4-T07 P0** Um ACTIVE por conversa.
+- [x] **G4-T08 P0** Lock transacional.
+- [x] **G4-T09 P0** MAX_QUEUE configurável.
+- [x] **G4-T10 P0** Recovery após restart.
+- [x] **G4-T11 P0** Falha libera fila.
 
 ### Tests
-- [ ] **G4-X01** Cinco arquivos recebem sequência 1..5.
-- [ ] **G4-X02** IA termina 3,1,5,2,4 → negócio executa 1..5.
-- [ ] **G4-X03** Dois workers não pegam mesmo item.
-- [ ] **G4-X04** Não existem dois ACTIVE na conversa.
-- [ ] **G4-X05** Usuário A não bloqueia B.
-- [ ] **G4-X06** Restart preserva READY.
-- [ ] **G4-X07** Restart de ACTIVE possui recovery definido.
-- [ ] **G4-X08** Fila cheia → zero Gemini para excedente.
-- [ ] **G4-X09** EXTRACTION_FAILED #1 libera #2.
+- [x] **G4-X01** Cinco arquivos recebem sequência 1..5.
+- [x] **G4-X02** IA termina 3,1,5,2,4 → negócio executa 1..5.
+- [x] **G4-X03** Dois workers não pegam mesmo item.
+- [x] **G4-X04** Não existem dois ACTIVE na conversa.
+- [x] **G4-X05** Usuário A não bloqueia B.
+- [x] **G4-X06** Restart preserva READY.
+- [x] **G4-X07** Restart de ACTIVE possui recovery definido.
+- [x] **G4-X08** Fila cheia → zero Gemini para excedente.
+- [x] **G4-X09** EXTRACTION_FAILED #1 libera #2.
 
-- [ ] **G4-APPROVED**
+- [x] **G4-APPROVED** APPROVED — explicit user approval recorded on 2026-08-08 (America/Sao_Paulo). Gate 4 is APPROVED and COMPLETE.
 
 ---
 

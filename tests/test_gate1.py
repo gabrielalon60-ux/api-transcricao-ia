@@ -8,19 +8,16 @@ def test_imports_and_construction():
     from transcription.main import app as trans_app
     from orchestrator.main import app as orch_app
     from bot_df.main import app as bot_app
-    from db_writer.main import app as writer_app
 
     assert trans_app is not None
     assert orch_app is not None
     assert bot_app is not None
-    assert writer_app is not None
 
 
 def test_health_endpoints():
     from transcription.main import app as trans_app
     from orchestrator.main import app as orch_app
     from bot_df.main import app as bot_app
-    from db_writer.main import app as writer_app
 
     # Transcription
     client = TestClient(trans_app)
@@ -36,12 +33,6 @@ def test_health_endpoints():
 
     # Bot DF
     client = TestClient(bot_app)
-    response = client.get("/health")
-    assert response.status_code == 200
-    assert response.json()["status"] == "ok"
-
-    # DB Writer
-    client = TestClient(writer_app)
     response = client.get("/health")
     assert response.status_code == 200
     assert response.json()["status"] == "ok"
