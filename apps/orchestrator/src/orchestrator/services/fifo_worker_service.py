@@ -1,13 +1,19 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Optional
+from decimal import Decimal, InvalidOperation
+from typing import Any, Optional
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 import sqlalchemy as sa
 
-from db.models import ProcessingItem, Execution
+from db.models import ProcessingItem, Execution, UserAnswer, UserInteraction
+from orchestrator.services.business_rules_evaluator import (
+    BusinessRulesEvaluatorService,
+    QUESTION_PRIORITY,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -253,3 +259,271 @@ def transition_active_to_validating(db: Session, item_id: str, worker_id: str) -
     db.commit()
     db.refresh(item)
     return item
+
+
+class Gate6DecisionConflict(RuntimeError):
+    """Raised when durable answer provenance disagrees with the materialized fact."""
+
+
+@dataclass(frozen=True)
+class EffectiveFinancialDecision:
+    direction: str
+    amount: Optional[Decimal]
+    transaction_date: datetime
+    document_date_str: Optional[str]
+    date_source: str
+    question_type: Optional[str]
+    clarification_reason: Optional[str]
+    is_eligible_for_auto_write: bool
+
+
+_NORMALIZED_FIELD_MAP: dict[str, tuple[str, str, str, str]] = {
+    "pix_receipt": ("amount", "transaction_date", "sender_cpf_cnpj", "receiver_cpf_cnpj"),
+    "bank_receipt": ("amount", "payment_date", "payer_cpf_cnpj", "recipient_cpf_cnpj"),
+    "invoice": ("total_amount", "invoice_date", "customer_cpf_cnpj", "supplier_cpf_cnpj"),
+    "commercial_document": ("total_amount", "document_date", "customer_cpf_cnpj", "supplier_cpf_cnpj"),
+}
+
+
+def _to_decimal(value: Any) -> Optional[Decimal]:
+    if value is None:
+        return None
+    if isinstance(value, Decimal):
+        return value
+    try:
+        return Decimal(str(value))
+    except (InvalidOperation, TypeError, ValueError):
+        return None
+
+
+def adapt_gate3_normalized_data(item: ProcessingItem) -> dict[str, Any]:
+    """Maps the four approved Gate 3 schemas to the frozen Gate 5 inputs."""
+    normalized = item.normalized_data or {}
+    fields = _NORMALIZED_FIELD_MAP.get(item.document_type or "")
+    if fields is None:
+        return {
+            "amount": None,
+            "document_date": None,
+            "payer_identifier": None,
+            "receiver_identifier": None,
+        }
+    amount_key, date_key, payer_key, receiver_key = fields
+    return {
+        "amount": _to_decimal(normalized.get(amount_key)),
+        "document_date": normalized.get(date_key),
+        "payer_identifier": normalized.get(payer_key),
+        "receiver_identifier": normalized.get(receiver_key),
+    }
+
+
+def _latest_applied_answers(db: Session, item_id: str) -> dict[str, UserAnswer]:
+    rows = (
+        db.query(UserAnswer, UserInteraction)
+        .join(UserInteraction, UserInteraction.id == UserAnswer.interaction_id)
+        .filter(
+            UserAnswer.processing_item_id == item_id,
+            UserAnswer.status == "APPLIED",
+            UserInteraction.status == "ANSWERED",
+        )
+        .order_by(
+            UserInteraction.generation.desc(),
+            UserAnswer.applied_at.desc(),
+            UserAnswer.created_at.desc(),
+        )
+        .all()
+    )
+    latest: dict[str, UserAnswer] = {}
+    for answer, interaction in rows:
+        latest.setdefault(interaction.question_type, answer)
+    return latest
+
+
+def _answer_value(answer: UserAnswer) -> Optional[str]:
+    result = answer.parsing_result or {}
+    value = result.get("value")
+    return str(value) if value is not None else None
+
+
+def _validated_human_overrides(
+    answers: dict[str, UserAnswer],
+    item: ProcessingItem,
+) -> tuple[Optional[str], Optional[Decimal]]:
+    direction: Optional[str] = None
+    amount: Optional[Decimal] = None
+
+    direction_answer = answers.get("transaction_direction")
+    if direction_answer is not None:
+        parsed_direction = _answer_value(direction_answer)
+        if parsed_direction not in {"income", "expense"} or item.direction != parsed_direction:
+            raise Gate6DecisionConflict("APPLIED direction answer diverges from ProcessingItem.direction")
+        direction = parsed_direction
+
+    amount_answer = answers.get("transaction_amount")
+    if amount_answer is not None:
+        parsed_amount = _to_decimal(_answer_value(amount_answer))
+        item_amount = _to_decimal(item.amount)
+        if parsed_amount is None or item_amount is None or parsed_amount != item_amount:
+            raise Gate6DecisionConflict("APPLIED amount answer diverges from ProcessingItem.amount")
+        amount = item_amount
+
+    return direction, amount
+
+
+def evaluate_and_persist_validating_item(
+    db: Session,
+    item_id: str,
+    worker_id: str,
+    evaluator: BusinessRulesEvaluatorService,
+) -> tuple[ProcessingItem, EffectiveFinancialDecision]:
+    """Evaluates a worker-owned VALIDATING item and persists only effective financial facts."""
+    full_worker_id = _normalize_worker_id(worker_id)
+    item = (
+        db.query(ProcessingItem)
+        .filter(
+            ProcessingItem.id == item_id,
+            ProcessingItem.status == "VALIDATING",
+            ProcessingItem.claimed_by == full_worker_id,
+            ProcessingItem.lease_expires_at > sa.func.now(),
+        )
+        .with_for_update()
+        .first()
+    )
+    if item is None:
+        raise Gate6DecisionConflict(f"Item {item_id} is not owned VALIDATING work")
+
+    adapted = adapt_gate3_normalized_data(item)
+    answers = _latest_applied_answers(db, item.id)
+    confirmed_direction, confirmed_amount = _validated_human_overrides(answers, item)
+
+    existing_amount = _to_decimal(item.amount)
+    amount_input = confirmed_amount
+    if amount_input is None and existing_amount is not None and existing_amount > 0:
+        amount_input = existing_amount
+    if amount_input is None:
+        amount_input = adapted["amount"]
+
+    raw_result = evaluator.evaluate(
+        amount=amount_input,
+        document_date=adapted["document_date"],
+        message_received_at=item.message_received_at,
+        payer_identifier=adapted["payer_identifier"],
+        receiver_identifier=adapted["receiver_identifier"],
+    )
+
+    existing_direction = item.direction if item.direction in {"income", "expense"} else None
+    effective_direction = confirmed_direction or existing_direction or raw_result.direction
+    effective_amount = raw_result.amount
+
+    unresolved: dict[str, str] = {}
+    if effective_direction not in {"income", "expense"}:
+        unresolved["transaction_direction"] = (
+            "AMBIGUOUS_DIRECTION" if effective_direction == "ambiguous" else "UNKNOWN_DIRECTION"
+        )
+    if effective_amount is None or effective_amount <= 0:
+        unresolved["transaction_amount"] = (
+            "MISSING_AMOUNT" if effective_amount is None else "INVALID_AMOUNT"
+        )
+
+    question_type = next((name for name in QUESTION_PRIORITY if name in unresolved), None)
+    clarification_reason = unresolved.get(question_type) if question_type else None
+    eligible = question_type is None and effective_direction in {"income", "expense"} and bool(
+        effective_amount is not None and effective_amount > 0
+    )
+
+    decision = EffectiveFinancialDecision(
+        direction=effective_direction,
+        amount=effective_amount,
+        transaction_date=raw_result.transaction_date,
+        document_date_str=raw_result.document_date_str,
+        date_source=raw_result.date_source,
+        question_type=question_type,
+        clarification_reason=clarification_reason,
+        is_eligible_for_auto_write=eligible,
+    )
+
+    item.amount = decision.amount
+    item.document_date = decision.document_date_str
+    item.transaction_date = decision.transaction_date
+    item.date_source = decision.date_source
+    item.direction = decision.direction
+    db.commit()
+    db.refresh(item)
+    return item, decision
+
+
+def claim_next_resumable_validating_item(
+    db: Session,
+    worker_id: str = "worker-1",
+) -> Optional[ProcessingItem]:
+    """Atomically claims unowned VALIDATING work backed by Gate 6 resume provenance."""
+    if not isinstance(db, Session):
+        return None
+    full_worker_id = _normalize_worker_id(worker_id)
+    OpenInteraction = sa.orm.aliased(UserInteraction)
+    AnsweredInteraction = sa.orm.aliased(UserInteraction)
+    AppliedAnswer = sa.orm.aliased(UserAnswer)
+    ReservedInteraction = sa.orm.aliased(UserInteraction)
+    DispatchExecution = sa.orm.aliased(Execution)
+    EarlierItem = sa.orm.aliased(ProcessingItem)
+
+    open_waiting = sa.select(OpenInteraction.id).where(
+        OpenInteraction.processing_item_id == ProcessingItem.id,
+        OpenInteraction.status.in_(["WAITING", "OUTBOUND_OUTCOME_UNKNOWN"]),
+    ).exists()
+    answered_applied = sa.select(AppliedAnswer.id).join(
+        AnsweredInteraction,
+        AnsweredInteraction.id == AppliedAnswer.interaction_id,
+    ).where(
+        AnsweredInteraction.processing_item_id == ProcessingItem.id,
+        AnsweredInteraction.status == "ANSWERED",
+        AppliedAnswer.status == "APPLIED",
+    ).exists()
+    matching_dispatch = sa.select(DispatchExecution.id).where(
+        DispatchExecution.processing_item_id == ProcessingItem.id,
+        DispatchExecution.operation == "USER_PROMPT_DISPATCHED",
+        DispatchExecution.outbound_message_id == ReservedInteraction.outbound_message_id,
+    ).exists()
+    recoverable_reserved = sa.select(ReservedInteraction.id).where(
+        ReservedInteraction.processing_item_id == ProcessingItem.id,
+        ReservedInteraction.status == "RESERVED",
+        ~matching_dispatch,
+    ).exists()
+    earlier_non_terminal = sa.select(EarlierItem.id).where(
+        EarlierItem.organization_id == ProcessingItem.organization_id,
+        EarlierItem.instance_id == ProcessingItem.instance_id,
+        EarlierItem.user_id == ProcessingItem.user_id,
+        EarlierItem.sequence < ProcessingItem.sequence,
+        EarlierItem.status.not_in(TERMINAL_STATES),
+    ).exists()
+
+    candidate = (
+        db.query(ProcessingItem)
+        .filter(
+            ProcessingItem.status == "VALIDATING",
+            ProcessingItem.claimed_by.is_(None),
+            ProcessingItem.lease_expires_at.is_(None),
+            ProcessingItem.heartbeat_at.is_(None),
+            ~open_waiting,
+            sa.or_(answered_applied, recoverable_reserved),
+            ~earlier_non_terminal,
+        )
+        .order_by(
+            ProcessingItem.message_received_at.asc(),
+            ProcessingItem.organization_id.asc(),
+            ProcessingItem.instance_id.asc(),
+            ProcessingItem.user_id.asc(),
+            ProcessingItem.sequence.asc(),
+        )
+        .with_for_update(skip_locked=True)
+        .first()
+    )
+    if candidate is None:
+        return None
+
+    now = datetime.now(timezone.utc)
+    candidate.claimed_by = full_worker_id
+    candidate.heartbeat_at = now
+    candidate.lease_expires_at = sa.func.now() + sa.text("INTERVAL '60 seconds'")
+    db.commit()
+    db.refresh(candidate)
+    return candidate

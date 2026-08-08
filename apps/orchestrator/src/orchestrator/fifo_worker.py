@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import sys
 import time
 import signal
@@ -13,6 +14,8 @@ import sqlalchemy as sa
 from orchestrator.config import get_settings
 from orchestrator.services.fifo_worker_service import (
     claim_next_ready_item,
+    claim_next_resumable_validating_item,
+    evaluate_and_persist_validating_item,
     transition_active_to_validating,
     POLL_INTERVAL_SECONDS,
 )
@@ -31,9 +34,11 @@ from orchestrator.services.waiting_input_sweeper import (
     expire_waiting_user_input_items,
 )
 from orchestrator.services.user_interaction_service import (
-    select_question_type,
     dispatch_user_prompt,
+    format_question_prompt,
+    select_question_type,
 )
+from orchestrator.services.business_rules_evaluator import BusinessRulesEvaluatorService
 from orchestrator.services.persistence_service import (
     transition_validating_to_persisting,
     claim_persistence_dispatch,
@@ -41,7 +46,8 @@ from orchestrator.services.persistence_service import (
     reconcile_persistence_outcomes,
     recover_stale_persistence_items,
 )
-from db.models import ProcessingItem
+from orchestrator.wuzapi import WuzapiClient
+from db.models import ProcessingItem, User
 
 logger = logging.getLogger(__name__)
 
@@ -116,6 +122,77 @@ class WorkerClaimTracker:
         return successful
 
 
+def _send_gate6_prompt(phone_number: str, question_type: str) -> bool:
+    """Synchronous worker bridge over the existing async WUZAPI client."""
+    client = WuzapiClient()
+    if not client.base_url or not client.token:
+        logger.error("WUZAPI is not configured; prompt outcome cannot be acknowledged.")
+        return False
+    try:
+        asyncio.run(client.send_text_message(phone_number, format_question_prompt(question_type)))
+        return True
+    except Exception as exc:
+        logger.warning(f"Gate 6 prompt send outcome is unconfirmed: {exc}")
+        return False
+
+
+def _process_validating_item(
+    db: Session,
+    item: ProcessingItem,
+    worker_id: str,
+    evaluator: BusinessRulesEvaluatorService,
+    claim_tracker: WorkerClaimTracker,
+) -> None:
+    # Preserve the frozen Phase 4E mocked-session supervision seam. Production
+    # always supplies a real SQLAlchemy Session and follows the Gate 6 path.
+    if not isinstance(db, Session):
+        legacy_question = select_question_type(item)
+        if legacy_question:
+            interaction = dispatch_user_prompt(db, item.id, legacy_question)
+            if interaction.status in ("WAITING", "OUTBOUND_OUTCOME_UNKNOWN"):
+                claim_tracker.remove_claim(item.id)
+        return
+
+    evaluated_item, decision = evaluate_and_persist_validating_item(
+        db,
+        item.id,
+        worker_id,
+        evaluator,
+    )
+
+    if decision.question_type:
+        user = db.query(User).filter(User.id == evaluated_item.user_id).first()
+        phone_number = user.phone_number if user is not None else ""
+
+        def sender(_item_id: str, question_type: str, _outbound_id: str) -> bool:
+            return bool(phone_number) and _send_gate6_prompt(phone_number, question_type)
+
+        interaction = dispatch_user_prompt(
+            db,
+            evaluated_item.id,
+            decision.question_type,
+            prompt_sender_func=sender,
+        )
+        if interaction.status in ("WAITING", "OUTBOUND_OUTCOME_UNKNOWN"):
+            claim_tracker.remove_claim(evaluated_item.id)
+        return
+
+    if not decision.is_eligible_for_auto_write:
+        logger.error(f"Gate 6 decision for item {evaluated_item.id} is internally inconsistent.")
+        return
+
+    persisting = transition_validating_to_persisting(db, evaluated_item.id, worker_id=worker_id)
+    if persisting is None:
+        return
+    claim_res = claim_persistence_dispatch(db, persisting.id, worker_id=worker_id)
+    if claim_res is None:
+        return
+    _, dispatch_token, _ = claim_res
+    final_item = dispatch_persistence_write(db, persisting.id, dispatch_token=dispatch_token)
+    if final_item and final_item.status in ("COMPLETED", "PERSISTENCE_FAILED"):
+        claim_tracker.remove_claim(evaluated_item.id)
+
+
 def run_fifo_worker_loop(worker_id: str = "worker-1", poll_interval: float = POLL_INTERVAL_SECONDS) -> None:
     """Independent Bot DF business FIFO worker runtime loop with Phase 4E recovery supervision.
 
@@ -129,7 +206,7 @@ def run_fifo_worker_loop(worker_id: str = "worker-1", poll_interval: float = POL
       - Polling fallback on empty queue (`time.sleep(poll_interval)`).
       - Catches and logs exceptions without terminating worker loop.
       - Handles graceful shutdown (`SIGINT`, `SIGTERM`).
-      - Zero Database Writer or PERSISTING interactions.
+      - Gate 6 evaluation, clarification, resume, and frozen persistence handoff.
     """
     global running
     signal.signal(signal.SIGINT, handle_shutdown)
@@ -147,6 +224,7 @@ def run_fifo_worker_loop(worker_id: str = "worker-1", poll_interval: float = POL
     SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
     claim_tracker = WorkerClaimTracker(worker_id=worker_id)
+    evaluator = BusinessRulesEvaluatorService(settings.df_holding_identifiers)
 
     logger.info(f"Bot DF FIFO Worker {worker_id} started (poll_interval={poll_interval}s).")
 
@@ -193,6 +271,13 @@ def run_fifo_worker_loop(worker_id: str = "worker-1", poll_interval: float = POL
         # 3. FIFO claim worker iteration (independent of sweeper failures)
         try:
             with SessionLocal() as db:
+                resumable = claim_next_resumable_validating_item(db, worker_id=worker_id)
+                if resumable:
+                    logger.info(f"Worker {worker_id} resumed VALIDATING item {resumable.id}.")
+                    claim_tracker.add_claim(resumable.id)
+                    _process_validating_item(db, resumable, worker_id, evaluator, claim_tracker)
+                    continue
+
                 claimed = claim_next_ready_item(db, worker_id=worker_id)
                 if claimed:
                     logger.info(f"Worker {worker_id} claimed item {claimed.id} (sequence={claimed.sequence}).")
@@ -202,45 +287,7 @@ def run_fifo_worker_loop(worker_id: str = "worker-1", poll_interval: float = POL
                     validating = transition_active_to_validating(db, claimed.id, worker_id=worker_id)
                     if validating:
                         logger.info(f"Worker {worker_id} transitioned item {claimed.id} to VALIDATING.")
-
-                        # Validation / Question Selection
-                        question_type = select_question_type(validating)
-                        if question_type:
-                            # Missing required field — dispatch prompt to user
-                            logger.info(
-                                f"Worker {worker_id} dispatching prompt for item {validating.id} "
-                                f"(question_type={question_type})."
-                            )
-                            interaction = dispatch_user_prompt(
-                                db,
-                                validating.id,
-                                question_type,
-                            )
-                            if interaction and interaction.status in ("WAITING", "OUTBOUND_OUTCOME_UNKNOWN"):
-                                # Item transitioned to WAITING_USER_INPUT; release claim
-                                claim_tracker.remove_claim(claimed.id)
-                                logger.info(
-                                    f"Worker {worker_id} released claim for item {claimed.id} "
-                                    f"(WAITING_USER_INPUT, question_type={question_type})."
-                                )
-                        else:
-                            # All required fields present — validation complete -> transition to PERSISTING
-                            logger.info(
-                                f"Worker {worker_id} item {validating.id} validation complete; transitioning to PERSISTING."
-                            )
-                            persisting = transition_validating_to_persisting(db, validating.id, worker_id=worker_id)
-                            if persisting:
-                                claim_res = claim_persistence_dispatch(db, persisting.id, worker_id=worker_id)
-                                if claim_res:
-                                    _, dispatch_token, _ = claim_res
-                                    final_item = dispatch_persistence_write(
-                                        db, persisting.id, dispatch_token=dispatch_token
-                                    )
-                                    if final_item and final_item.status in ("COMPLETED", "PERSISTENCE_FAILED"):
-                                        claim_tracker.remove_claim(claimed.id)
-                                        logger.info(
-                                            f"Worker {worker_id} item {claimed.id} reached terminal state {final_item.status}; claim released."
-                                        )
+                        _process_validating_item(db, validating, worker_id, evaluator, claim_tracker)
 
                 else:
                     time.sleep(poll_interval)

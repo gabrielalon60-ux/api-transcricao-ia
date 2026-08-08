@@ -23,6 +23,20 @@ VALID_QUESTION_TYPES = {
     "document_classification",
 }
 
+DIRECTION_PROMPT = """Este lançamento é uma entrada ou uma despesa?
+
+1 - Entrada
+2 - Despesa
+
+Responda com 1 ou 2."""
+
+AMOUNT_PROMPT = "Qual é o valor deste lançamento?"
+
+QUESTION_PROMPTS = {
+    "transaction_direction": DIRECTION_PROMPT,
+    "transaction_amount": AMOUNT_PROMPT,
+}
+
 
 # --- Question Parsers ---
 
@@ -38,13 +52,19 @@ def parse_direction_answer(text: str) -> Optional[str]:
 
 def parse_amount_answer(text: str) -> Optional[Decimal]:
     """Parses transaction amount answer into Decimal."""
-    cleaned = text.strip()
-    if "-" in cleaned:
-        return None
-    match = re.search(r"(?:R\$\s*)?(\d+(?:[.,]\d{1,2})?)", cleaned, re.IGNORECASE)
+    match = re.fullmatch(
+        r"(?:R\$\s*)?(?P<amount>(?:\d{1,3}(?:\.\d{3})+,\d{1,2})|(?:\d+(?:[.,]\d{1,2})?))",
+        text.strip(),
+        re.IGNORECASE,
+    )
     if not match:
         return None
-    val_str = match.group(1).replace(",", ".")
+
+    val_str = match.group("amount")
+    if "." in val_str and "," in val_str:
+        val_str = val_str.replace(".", "").replace(",", ".")
+    else:
+        val_str = val_str.replace(",", ".")
     try:
         val = Decimal(val_str)
         if val <= 0:
@@ -52,6 +72,14 @@ def parse_amount_answer(text: str) -> Optional[Decimal]:
         return val.quantize(Decimal("0.01"))
     except (InvalidOperation, TypeError):
         return None
+
+
+def format_question_prompt(question_type: str) -> str:
+    """Returns the exact approved Gate 6 prompt for a P0 question type."""
+    try:
+        return QUESTION_PROMPTS[question_type]
+    except KeyError as exc:
+        raise ValueError(f"No Gate 6 prompt configured for {question_type}") from exc
 
 
 def parse_document_classification_answer(text: str) -> Optional[str]:
@@ -484,14 +512,37 @@ def apply_user_answer(
 
         latest_inter = (
             db.query(UserInteraction)
-            .filter(UserInteraction.processing_item_id == latest_item.id)
+            .join(ProcessingItem, ProcessingItem.id == UserInteraction.processing_item_id)
+            .filter(
+                ProcessingItem.organization_id == evt.organization_id,
+                ProcessingItem.instance_id == evt.instance_id,
+                ProcessingItem.user_id == evt.user_id,
+            )
             .order_by(UserInteraction.created_at.desc())
             .first()
         )
 
+        if latest_inter is None:
+            logger.info(f"Inbound answer {inbound_event_id} has no matching user interaction.")
+            return UserAnswer(
+                id=str(uuid.uuid4()),
+                interaction_id=str(uuid.uuid4()),
+                processing_item_id=latest_item.id,
+                inbound_event_id=inbound_event_id,
+                sanitized_answer=raw_answer_text.strip(),
+                status="LATE",
+                error_code="NO_WAITING_ITEM",
+            )
+
+        latest_item = (
+            db.query(ProcessingItem)
+            .filter(ProcessingItem.id == latest_inter.processing_item_id)
+            .one()
+        )
+
         answer = UserAnswer(
             id=str(uuid.uuid4()),
-            interaction_id=latest_inter.id if latest_inter else str(uuid.uuid4()),
+            interaction_id=latest_inter.id,
             processing_item_id=latest_item.id,
             inbound_event_id=inbound_event_id,
             sanitized_answer=raw_answer_text.strip(),

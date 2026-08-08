@@ -5,7 +5,7 @@ from datetime import datetime, timezone, timedelta
 from sqlalchemy.orm import Session
 import sqlalchemy as sa
 
-from db.models import ProcessingItem, Execution, UserInteraction
+from db.models import ProcessingItem, Execution, UserAnswer, UserInteraction
 
 logger = logging.getLogger(__name__)
 
@@ -124,15 +124,12 @@ def recover_stale_validating_items(db: Session) -> int:
         if not item.lease_expires_at or item.lease_expires_at >= datetime.now(timezone.utc):
             continue
 
-        # Fetch checkpoints and open user_interaction
+        # Fetch checkpoints and the current open generation.
         execs = (
             db.query(Execution)
             .filter(Execution.processing_item_id == item.id)
             .all()
         )
-        op_set = {e.operation for e in execs}
-        effect_set = {e.effect_status for e in execs if e.effect_status is not None}
-
         open_interaction = (
             db.query(UserInteraction)
             .filter(
@@ -141,6 +138,44 @@ def recover_stale_validating_items(db: Session) -> int:
             )
             .first()
         )
+
+        # Gate 6 resume recovery: an answered/applied generation is durable
+        # provenance for keeping this item resumable in VALIDATING. This check
+        # must precede legacy item-wide prompt checkpoints from older generations.
+        answered_applied = None
+        if open_interaction is None:
+            answered_applied = (
+                db.query(UserAnswer.id)
+                .join(UserInteraction, UserInteraction.id == UserAnswer.interaction_id)
+                .filter(
+                    UserAnswer.processing_item_id == item.id,
+                    UserAnswer.status == "APPLIED",
+                    UserInteraction.status == "ANSWERED",
+                )
+                .first()
+            )
+        if answered_applied is not None:
+            item.claimed_by = None
+            item.heartbeat_at = None
+            item.lease_expires_at = None
+            db.commit()
+            recovered_count += 1
+            logger.info(f"Recovered stale Gate 6 resumed VALIDATING item {item.id}")
+            continue
+
+        # Prompt recovery decisions are generation/outbound-message scoped.
+        # With no open generation, retain the frozen legacy item-wide matrix.
+        if open_interaction is not None:
+            relevant_execs = [
+                execution
+                for execution in execs
+                if execution.outbound_message_id == open_interaction.outbound_message_id
+                or execution.external_reference == open_interaction.outbound_message_id
+            ]
+        else:
+            relevant_execs = execs
+        op_set = {e.operation for e in relevant_execs}
+        effect_set = {e.effect_status for e in relevant_execs if e.effect_status is not None}
 
         # Contradictory check
         if "USER_PROMPT_ACKNOWLEDGED" in op_set and "OUTBOUND_OUTCOME_UNKNOWN" in effect_set:
@@ -200,6 +235,9 @@ def recover_stale_validating_items(db: Session) -> int:
                     correlation_id=item.correlation_id,
                     component="BOT_DF",
                     operation="USER_PROMPT_OUTCOME_UNKNOWN",
+                    external_reference=(
+                        open_interaction.outbound_message_id if open_interaction else None
+                    ),
                     status="FAILED",
                     effect_status="OUTBOUND_OUTCOME_UNKNOWN",
                     attempt=item.attempt_count,

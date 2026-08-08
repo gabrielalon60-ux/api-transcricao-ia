@@ -3,10 +3,10 @@
 > Convenience summary only. `TASKS_TESTS_GATES.md` is the operational source of truth.
 
 ## Current Gate
-**Gate 5 — Regras BOT DF (APPROVED / COMPLETE)**
+**Gate 6 — Clarificação Interativa BOT DF (APPROVED / COMPLETE)**
 
 ## Last User-Approved Gate
-**Gate 5 — Regras BOT DF (Approved on 2026-08-08, America/Sao_Paulo)**
+**Gate 6 — Clarificação Interativa BOT DF (Approved on 2026-08-08, America/Sao_Paulo)**
 
 The standalone Transcription IA 1.0 was validated before this platform initiative, but the new architecture begins at Gate 0.
 
@@ -20,18 +20,29 @@ The standalone Transcription IA 1.0 was validated before this platform initiativ
 - G5-APPROVED: true.
 - Gate 5 migrations: NONE REQUIRED.
 - Gate 5 tests: 63 passed, 0 skipped, 0 failed, 0 errors.
+- Gate 6 planning: APPROVED.
+- Gate 6 implementation plan: APPROVED.
+- Gate 6 implementation HOLD: APPROVED.
+- Gate 6 implementation: COMPLETE.
+- Gate 6 verification: PASSED.
+- Gate 6 overall: APPROVED on 2026-08-08.
+- G6-APPROVED: true.
+- Gate 6 migrations: NONE REQUIRED.
+- Gate 6 tests: 64 passed, 0 skipped, 0 failed, 0 errors.
 - Frozen Gate 4 regression: 210 passed, 0 skipped, 0 failed, 0 errors.
-- Complete project suite: 375 passed, 0 skipped, 0 failed, 0 errors.
+- Complete project suite: 439 passed, 0 skipped, 0 failed, 0 errors.
 - Final static verification: compileall PASS; Ruff PASS; mypy PASS; git diff --check PASS.
 - Reproducibility: PostgreSQL 15 disposable environment used; `tzdata` declared in `apps/orchestrator/pyproject.toml`; `uv.lock` updated; `ZoneInfo("America/Sao_Paulo")` verified after frozen dependency sync.
-- Scope integrity: `fifo_worker_service.py` unchanged; zero WUZAPI integration; zero Database Writer/PersistenceService integration; zero Gate 5 migrations.
-- Database safety: no persistent, staging, production, or remote database touched during final verification.
-- Gate 6: NOT STARTED.
+- Gate 6 scope integrity: `business_rules_evaluator.py`, WuzapiClient implementation, Gate 4 PersistenceService behavior, Database Writer, models, migrations, dependencies, and runtime configuration unchanged; zero Gate 7/8 work; zero final success-message runtime integration.
+- Database safety: PostgreSQL 15 disposable environment only; no persistent, staging, production, or remote database touched; disposable resources cleaned afterward.
+- Late-answer defect: implementation testing exposed a foreign-key defect in the late-answer path; corrected within the authorized `user_interaction_service.py` Gate 6 scope with no architecture deviation.
+- Gate 7: NOT STARTED.
+- Gate 8: NOT STARTED.
 - Persistent migration execution: NOT AUTHORIZED.
 - Staging migration execution: NOT AUTHORIZED.
 - Production migration execution: NOT AUTHORIZED.
 - Remote database execution: NOT AUTHORIZED.
-- Next Step: Prepare the approved Gate 5 worktree for commit. Do not start Gate 6 without separate user authorization.
+- Next Step: Prepare the approved Gate 6 worktree for commit. Do not start Gate 7 or Gate 8 without separate user authorization.
 - Gate 4: COMPLETE.
 - Gate 3 — Transcription was explicitly approved by the user on 2026-08-04 at 00:20:08 -03:00 (America/Sao_Paulo), based on the formal application review result `REVIEW PASSED WITH FOLLOW-UPS`.
 - Gate 3 application implementation: APPROVED.
@@ -122,4 +133,4 @@ Database Writer final implementation is blocked until the DF destination schema 
 Production release remains blocked until real CPF/CNPJ configuration and Security Gate requirements are complete.
 
 ## Recommended Next Action
-Prepare a clean Gate 5 commit from the approved worktree. Do not start Gate 6 until the user separately authorizes Gate 6 work.
+Prepare a clean Gate 6 commit from the approved worktree. Do not start Gate 7 or Gate 8.

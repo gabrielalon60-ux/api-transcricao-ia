@@ -303,7 +303,7 @@ Status:
 - Gate 5 verification: PASSED.
 - Gate 5 overall: APPROVED on 2026-08-08.
 - Gate 5 migrations: NONE REQUIRED.
-- Gate 6: NOT STARTED.
+- Gate 6: APPROVED / COMPLETE on 2026-08-08.
 - Persistent/staging/production/remote migration execution: NOT AUTHORIZED.
 
 ### Tasks
@@ -346,36 +346,62 @@ Status:
 
 ## GATE 6 — Conversação
 
+Status:
+- Gate 6 planning: APPROVED.
+- Gate 6 implementation plan: APPROVED.
+- Gate 6 implementation HOLD: APPROVED.
+- Gate 6 implementation: COMPLETE.
+- Gate 6 verification: PASSED.
+- Gate 6 overall: APPROVED on 2026-08-08.
+- G6-APPROVED: true.
+- Gate 6 migrations: NONE REQUIRED.
+- Gate 7: NOT STARTED.
+- Gate 8: NOT STARTED.
+
 ### Tasks
-- [ ] **G6-T01 P0** WAITING_USER_INPUT.
-- [ ] **G6-T02 P0** Pergunta direction.
-- [ ] **G6-T03 P0** Pergunta amount.
-- [ ] **G6-T04 P0** Parse 1/2.
-- [ ] **G6-T05 P0** Parse valor pt-BR.
-- [ ] **G6-T06 P0** Uma pergunta por conversa.
-- [ ] **G6-T07 P0** TTL 1h.
-- [ ] **G6-T08 P0** EXPIRED.
-- [ ] **G6-T09 P0** Novo arquivo durante espera.
-- [ ] **G6-T10 P0** Continuar após resolução.
-- [ ] **G6-T11 P0** Continuar após expiração.
+- [x] **G6-T01 P0** WAITING_USER_INPUT.
+- [x] **G6-T02 P0** Pergunta direction.
+- [x] **G6-T03 P0** Pergunta amount.
+- [x] **G6-T04 P0** Parse 1/2.
+- [x] **G6-T05 P0** Parse valor pt-BR.
+- [x] **G6-T06 P0** Uma pergunta por conversa.
+- [x] **G6-T07 P0** TTL 1h.
+- [x] **G6-T08 P0** EXPIRED.
+- [x] **G6-T09 P0** Novo arquivo durante espera.
+- [x] **G6-T10 P0** Continuar após resolução.
+- [x] **G6-T11 P0** Continuar após expiração.
 
 ### Tests
-- [ ] **G6-X01** Terceiro de cinco pergunta; #4/#5 aguardam.
-- [ ] **G6-X02** `1` resolve direction do item ativo.
-- [ ] **G6-X03** `2` resolve direction do item ativo.
-- [ ] **G6-X04** `1.200,50` normaliza corretamente.
-- [ ] **G6-X05** Resposta inválida mantém pergunta.
-- [ ] **G6-X06** Novo arquivo durante pendência vira READY.
-- [ ] **G6-X07** Expira em 1h.
-- [ ] **G6-X08** Expiração libera próximo.
-- [ ] **G6-X09** Item expirado exige reenvio.
-- [ ] **G6-X10** Máximo um WAITING por conversa.
+- [x] **G6-X01** Terceiro de cinco pergunta; #4/#5 aguardam.
+- [x] **G6-X02** `1` resolve direction do item ativo.
+- [x] **G6-X03** `2` resolve direction do item ativo.
+- [x] **G6-X04** `1.200,50` normaliza corretamente.
+- [x] **G6-X05** Resposta inválida mantém pergunta.
+- [x] **G6-X06** Novo arquivo durante pendência vira READY.
+- [x] **G6-X07** Expira em 1h.
+- [x] **G6-X08** Expiração libera próximo.
+- [x] **G6-X09** Item expirado exige reenvio.
+- [x] **G6-X10** Máximo um WAITING por conversa.
 
-- [ ] **G6-APPROVED**
+- [x] **G6-APPROVED = true**
+
+### Implementation Verification Evidence
+- Gate 6 tests: **64 passed, 0 skipped, 0 failed, 0 errors**.
+- Frozen Gate 4 regression: **210 passed, 0 skipped, 0 failed, 0 errors**.
+- Frozen Gate 5 regression: **63 passed, 0 skipped, 0 failed, 0 errors**.
+- Complete safe project suite: **439 passed, 0 skipped, 0 failed, 0 errors**.
+- Static verification: **compileall PASS; Ruff PASS; mypy PASS; git diff --check PASS**.
+- Test environment: **PostgreSQL 15 disposable only**.
+- Database safety: **no persistent/staging/production/remote database touched; disposable resources cleaned afterward**.
+- Scope integrity: **`business_rules_evaluator.py` unchanged; WuzapiClient implementation unchanged; Gate 4 persistence behavior preserved; zero Gate 7/8 work; zero final success-message runtime integration**.
+- Migrations: **NONE REQUIRED; NONE CREATED OR MODIFIED**; persistent/staging/production/remote execution remains **NOT AUTHORIZED**.
+- Late-answer defect: implementation testing exposed a foreign-key defect and corrected it within the already-authorized `user_interaction_service.py` Gate 6 scope; final architecture remains aligned with the approved contract.
 
 ---
 
 ## GATE 7 — Database Writer
+
+Status: **NOT STARTED**.
 
 ### Tasks
 - [ ] **G7-T01 P0** Fechar schema DF.
@@ -407,6 +433,8 @@ Status:
 ---
 
 ## GATE 8 — E2E
+
+Status: **NOT STARTED**.
 
 ### Tests obrigatórios
 - [ ] **G8-X01** PIX → expense → grava → WhatsApp.
