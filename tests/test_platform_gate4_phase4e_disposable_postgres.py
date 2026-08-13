@@ -20,13 +20,18 @@ from orchestrator.services.stale_recovery_service import (
 )
 from orchestrator.services.user_interaction_service import (
     create_or_get_open_interaction,
-    dispatch_user_prompt,
+    dispatch_user_prompt as _dispatch_user_prompt,
     apply_user_answer,
 )
 from orchestrator.services.cancel_command_handler import handle_cancel_command
 from orchestrator.services.waiting_input_sweeper import expire_waiting_user_input_items
 from orchestrator.services.fifo_worker_service import claim_next_ready_item
 from orchestrator.fifo_worker import WorkerClaimTracker
+
+
+def dispatch_user_prompt(*args, **kwargs):
+    kwargs.setdefault("worker_id", "worker-1")
+    return _dispatch_user_prompt(*args, **kwargs)
 
 ROOT = Path(__file__).resolve().parents[1]
 ALEMBIC_INI = ROOT / "packages" / "db" / "alembic.ini"
@@ -75,6 +80,9 @@ def setup_test_context(engine):
 
 def create_test_item(engine, org_id, inst_id, user_id, seq=1, status="VALIDATING", claimed_by=None, lease_expires_at=None, question_type=None, waiting_since=None, expires_at=None):
     evt_id, item_id = str(uuid.uuid4()), str(uuid.uuid4())
+    if status == "VALIDATING" and claimed_by is None:
+        claimed_by = "worker-1"
+        lease_expires_at = datetime.now(timezone.utc) + timedelta(seconds=60)
     with Session(engine) as session:
         evt = Event(id=evt_id, correlation_id=f"c-{evt_id}", provider="WUZAPI", external_instance_id=f"ext-{inst_id}", external_message_id=f"msg-{evt_id}", organization_id=org_id, instance_id=inst_id, user_id=user_id, message_type="image", status="RECEIVED")
         session.add(evt)

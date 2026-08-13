@@ -14,7 +14,10 @@ from db_writer.models import WriteLedger
 
 ROOT = Path(__file__).resolve().parents[1]
 ALEMBIC_INI = ROOT / "apps" / "db_writer" / "alembic.ini"
-DISPOSABLE_DB_URL = os.getenv("DB_WRITER_DISPOSABLE_DATABASE_URL", "postgresql://postgres:postgres@localhost:55432/db_writer_gate4_test")
+DISPOSABLE_DB_URL = os.getenv(
+    "DB_WRITER_DISPOSABLE_DATABASE_URL",
+    "postgresql://postgres:postgres@localhost:55432/db_writer_gate4_test",
+)
 
 
 @pytest.fixture(scope="module")
@@ -24,14 +27,21 @@ def db_writer_engine():
         with engine.connect() as conn:
             conn.execute(text("SELECT 1"))
     except Exception as exc:
-        pytest.skip(f"Disposable PostgreSQL container at {DISPOSABLE_DB_URL} is not accessible: {exc}")
+        pytest.skip(
+            f"Disposable PostgreSQL container at {DISPOSABLE_DB_URL} is not accessible: {exc}"
+        )
 
     alembic_cfg = Config(str(ALEMBIC_INI))
     alembic_cfg.set_main_option("sqlalchemy.url", DISPOSABLE_DB_URL)
 
     # Clean previous schema
     with engine.connect() as conn:
-        conn.execute(text("DROP TABLE IF EXISTS write_ledger, df_business_records, db_writer_alembic_version CASCADE;"))
+        conn.execute(
+            text(
+                "DROP TABLE IF EXISTS financial_records, suppliers, enterprises, "
+                "write_ledger, df_business_records, db_writer_alembic_version CASCADE;"
+            )
+        )
         conn.commit()
 
     # Upgrade to head
@@ -40,7 +50,12 @@ def db_writer_engine():
 
     # Clean up
     with engine.connect() as conn:
-        conn.execute(text("DROP TABLE IF EXISTS write_ledger, df_business_records, db_writer_alembic_version CASCADE;"))
+        conn.execute(
+            text(
+                "DROP TABLE IF EXISTS financial_records, suppliers, enterprises, "
+                "write_ledger, df_business_records, db_writer_alembic_version CASCADE;"
+            )
+        )
         conn.commit()
 
 
@@ -69,9 +84,11 @@ def test_1_db_writer_migration_upgrade_downgrade_cycle(db_writer_engine):
 def test_2_single_alembic_head_and_version_table(db_writer_engine):
     """Proves Database Writer has exactly one canonical Alembic head and uses db_writer_alembic_version."""
     with db_writer_engine.connect() as conn:
-        res = conn.execute(text("SELECT version_num FROM db_writer_alembic_version")).fetchall()
+        res = conn.execute(
+            text("SELECT version_num FROM db_writer_alembic_version")
+        ).fetchall()
         assert len(res) == 1
-        assert res[0][0] == "a1b2c3d4e5f6"
+        assert res[0][0] == "b7c8d9e0f1a3"
 
 
 def test_3_orm_migration_parity(db_writer_engine):
@@ -124,7 +141,10 @@ def test_4_idempotency_uniqueness_and_length_constraints(db_writer_engine):
                 )
             )
             s.commit()
-    assert "23505" in str(exc_info.value) or "unique constraint" in str(exc_info.value).lower()
+    assert (
+        "23505" in str(exc_info.value)
+        or "unique constraint" in str(exc_info.value).lower()
+    )
 
     # Oversized idempotency_key (>512 chars) raises DataError 22001
     oversized_key = "k" * 513
@@ -142,4 +162,7 @@ def test_4_idempotency_uniqueness_and_length_constraints(db_writer_engine):
                 )
             )
             s.commit()
-    assert "22001" in str(exc_info_len.value) or "value too long" in str(exc_info_len.value).lower()
+    assert (
+        "22001" in str(exc_info_len.value)
+        or "value too long" in str(exc_info_len.value).lower()
+    )

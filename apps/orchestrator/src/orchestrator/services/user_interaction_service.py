@@ -10,17 +10,33 @@ from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 import sqlalchemy as sa
 
-from db.models import ProcessingItem, Execution, UserInteraction, UserAnswer, Event
+from db.models import (
+    EnterpriseCommandSession,
+    Event,
+    Execution,
+    ProcessingItem,
+    UserAnswer,
+    UserInteraction,
+)
+from orchestrator.repositories.queue_repository import (
+    lock_or_create_conversation_counter,
+)
 
 logger = logging.getLogger(__name__)
 
 WAITING_USER_INPUT_TTL_SECONDS = 3600
+
+
+class EnterpriseCommandBarrier(RuntimeError):
+    """An OPEN /empreendimento session owns the conversation interaction."""
+
 
 # Closed vocabulary of question types
 VALID_QUESTION_TYPES = {
     "transaction_direction",
     "transaction_amount",
     "document_classification",
+    "enterprise_selection",
 }
 
 DIRECTION_PROMPT = """Este lançamento é uma entrada ou uma despesa?
@@ -39,6 +55,7 @@ QUESTION_PROMPTS = {
 
 
 # --- Question Parsers ---
+
 
 def parse_direction_answer(text: str) -> Optional[str]:
     """Parses transaction direction answer into 'income' or 'expense'."""
@@ -74,8 +91,17 @@ def parse_amount_answer(text: str) -> Optional[Decimal]:
         return None
 
 
-def format_question_prompt(question_type: str) -> str:
+def format_question_prompt(
+    question_type: str, option_mapping: Optional[dict] = None
+) -> str:
     """Returns the exact approved Gate 6 prompt for a P0 question type."""
+    if question_type == "enterprise_selection":
+        if not option_mapping:
+            raise ValueError("Enterprise options are required")
+        lines = ["Selecione o empreendimento deste lançamento:", ""]
+        for position in sorted(option_mapping, key=lambda value: int(value)):
+            lines.append(f"{position} - {option_mapping[position]['display_name']}")
+        return "\n".join(lines)
     try:
         return QUESTION_PROMPTS[question_type]
     except KeyError as exc:
@@ -91,7 +117,13 @@ def parse_document_classification_answer(text: str) -> Optional[str]:
         return "bank_receipt"
     if normalized in {"3", "nota", "nota fiscal", "invoice"}:
         return "invoice"
-    if normalized in {"4", "outro", "pedido", "comprovante comercial", "commercial_document"}:
+    if normalized in {
+        "4",
+        "outro",
+        "pedido",
+        "comprovante comercial",
+        "commercial_document",
+    }:
         return "commercial_document"
     return None
 
@@ -153,24 +185,30 @@ def select_question_type(item: "ProcessingItem") -> Optional[str]:
 
 # --- Interaction Generation & Dispatch ---
 
+
 def create_or_get_open_interaction(
     db: Session,
     processing_item_id: str,
     question_type: str,
+    option_mapping: Optional[dict] = None,
 ) -> UserInteraction:
     """Allocates a new interaction generation using Savepoint strategy to prevent transaction abort on race.
 
     Returns open UserInteraction.
     """
     if question_type not in VALID_QUESTION_TYPES:
-        raise ValueError(f"Invalid question_type {question_type}. Must be one of {VALID_QUESTION_TYPES}")
+        raise ValueError(
+            f"Invalid question_type {question_type}. Must be one of {VALID_QUESTION_TYPES}"
+        )
 
     # Check for existing open interaction
     existing = (
         db.query(UserInteraction)
         .filter(
             UserInteraction.processing_item_id == processing_item_id,
-            UserInteraction.status.in_(["RESERVED", "WAITING", "OUTBOUND_OUTCOME_UNKNOWN"]),
+            UserInteraction.status.in_(
+                ["RESERVED", "WAITING", "OUTBOUND_OUTCOME_UNKNOWN"]
+            ),
         )
         .first()
     )
@@ -196,6 +234,7 @@ def create_or_get_open_interaction(
             question_type=question_type,
             outbound_message_id=outbound_msg_id,
             status="RESERVED",
+            option_mapping=option_mapping,
         )
         db.add(interaction)
         savepoint.commit()
@@ -207,13 +246,17 @@ def create_or_get_open_interaction(
             db.query(UserInteraction)
             .filter(
                 UserInteraction.processing_item_id == processing_item_id,
-                UserInteraction.status.in_(["RESERVED", "WAITING", "OUTBOUND_OUTCOME_UNKNOWN"]),
+                UserInteraction.status.in_(
+                    ["RESERVED", "WAITING", "OUTBOUND_OUTCOME_UNKNOWN"]
+                ),
             )
             .first()
         )
         if existing:
             return existing
-        logger.error(f"Failed to allocate interaction generation for item {processing_item_id}: {exc}")
+        logger.error(
+            f"Failed to allocate interaction generation for item {processing_item_id}: {exc}"
+        )
         raise exc
 
 
@@ -222,6 +265,9 @@ def dispatch_user_prompt(
     item_id: str,
     question_type: str,
     prompt_sender_func: Optional[Callable[[str, str, str], bool]] = None,
+    option_mapping: Optional[dict] = None,
+    *,
+    worker_id: Optional[str] = None,
 ) -> UserInteraction:
     """Executes prompt dispatch across 4 explicit transaction boundaries.
 
@@ -232,21 +278,87 @@ def dispatch_user_prompt(
     """
     now = datetime.now(timezone.utc)
 
-    # Lock processing item
+    # Resolve identity, then acquire the shared cross-protocol conversation lock
+    # before either protocol may reserve an OPEN owner.
     item = (
         db.query(ProcessingItem)
-        .filter(ProcessingItem.id == item_id)
-        .with_for_update()
+        .filter(
+            ProcessingItem.id == item_id,
+            ProcessingItem.status.in_(["VALIDATING", "WAITING_USER_INPUT"]),
+        )
         .first()
     )
     if not item:
-        raise ValueError(f"ProcessingItem {item_id} not found")
+        raise ValueError(f"ProcessingItem {item_id} is not eligible for interaction")
+    lock_or_create_conversation_counter(
+        db, item.organization_id, item.instance_id, item.user_id
+    )
+    item = (
+        db.query(ProcessingItem)
+        .filter(
+            ProcessingItem.id == item_id,
+            ProcessingItem.status.in_(["VALIDATING", "WAITING_USER_INPUT"]),
+        )
+        .with_for_update()
+        .one()
+    )
+    if item.status == "WAITING_USER_INPUT":
+        existing_interaction = (
+            db.query(UserInteraction)
+            .filter(
+                UserInteraction.processing_item_id == item.id,
+                UserInteraction.status.in_(
+                    ["RESERVED", "WAITING", "OUTBOUND_OUTCOME_UNKNOWN"]
+                ),
+            )
+            .order_by(UserInteraction.generation.desc())
+            .first()
+        )
+        if existing_interaction is None:
+            raise ValueError(
+                f"ProcessingItem {item_id} is not eligible for interaction"
+            )
+        return existing_interaction
+    current_worker_id = (
+        worker_id
+        if worker_id is None or worker_id.startswith("worker-")
+        else f"worker-{worker_id}"
+    )
+    if (
+        worker_id is None
+        or item.claimed_by != current_worker_id
+        or item.lease_expires_at is None
+        or item.lease_expires_at <= now
+    ):
+        raise ValueError(
+            f"ProcessingItem {item_id} is not owned by the current worker with a live lease"
+        )
+    command_open = (
+        db.query(EnterpriseCommandSession.id)
+        .filter(
+            EnterpriseCommandSession.organization_id == item.organization_id,
+            EnterpriseCommandSession.instance_id == item.instance_id,
+            EnterpriseCommandSession.user_id == item.user_id,
+            EnterpriseCommandSession.status.in_(
+                ["RESERVED", "WAITING", "OUTBOUND_OUTCOME_UNKNOWN"]
+            ),
+        )
+        .first()
+    )
+    if command_open:
+        raise EnterpriseCommandBarrier(
+            "Enterprise command owns this conversation interaction"
+        )
 
     # Boundary 1: Reserve interaction & USER_PROMPT_RESERVED
-    interaction = create_or_get_open_interaction(db, item_id, question_type)
+    interaction = create_or_get_open_interaction(
+        db, item_id, question_type, option_mapping=option_mapping
+    )
 
     # Check if USER_PROMPT_RESERVED already written (via operation_idempotency_key)
-    reserved_idem_key = f"{item_id}:USER_PROMPT_RESERVED:{interaction.outbound_message_id}"
+    reserved_idem_key = (
+        f"{item_id}:USER_PROMPT_RESERVED:{interaction.outbound_message_id}"
+    )
     reserved_exec = (
         db.query(Execution)
         .filter(
@@ -277,7 +389,9 @@ def dispatch_user_prompt(
         except IntegrityError:
             sp_reserved.rollback()
             db.rollback()
-            logger.info(f"USER_PROMPT_RESERVED already committed for interaction {interaction.id} (duplicate reservation).")
+            logger.info(
+                f"USER_PROMPT_RESERVED already committed for interaction {interaction.id} (duplicate reservation)."
+            )
         db.refresh(interaction)
 
     # Boundary 2: Record USER_PROMPT_DISPATCHED atomically using row lock & savepoint guard
@@ -289,7 +403,9 @@ def dispatch_user_prompt(
         .first()
     )
     if not interaction_locked:
-        logger.info(f"Worker lost concurrent prompt dispatch lock for interaction {interaction.id}.")
+        logger.info(
+            f"Worker lost concurrent prompt dispatch lock for interaction {interaction.id}."
+        )
         return interaction
 
     dispatched_exec = (
@@ -302,7 +418,9 @@ def dispatch_user_prompt(
         .first()
     )
     is_dispatch_owner = False
-    dispatched_idem_key = f"{item_id}:USER_PROMPT_DISPATCHED:{interaction.outbound_message_id}"
+    dispatched_idem_key = (
+        f"{item_id}:USER_PROMPT_DISPATCHED:{interaction.outbound_message_id}"
+    )
     if not dispatched_exec:
         sp = db.begin_nested()
         try:
@@ -327,7 +445,9 @@ def dispatch_user_prompt(
         except IntegrityError:
             sp.rollback()
             db.rollback()
-            logger.info(f"Worker lost concurrent prompt dispatch race for interaction {interaction.id}.")
+            logger.info(
+                f"Worker lost concurrent prompt dispatch race for interaction {interaction.id}."
+            )
             is_dispatch_owner = False
     else:
         is_dispatch_owner = False
@@ -340,9 +460,13 @@ def dispatch_user_prompt(
     dispatch_ok = False
     if prompt_sender_func:
         try:
-            dispatch_ok = prompt_sender_func(item.id, interaction.question_type, interaction.outbound_message_id)
+            dispatch_ok = prompt_sender_func(
+                item.id, interaction.question_type, interaction.outbound_message_id
+            )
         except Exception as exc:
-            logger.warning(f"Outbound WUZAPI prompt sender raised exception for item {item_id}: {exc}")
+            logger.warning(
+                f"Outbound WUZAPI prompt sender raised exception for item {item_id}: {exc}"
+            )
             dispatch_ok = False
     else:
         # Default mock / test sender: treats as ACKNOWLEDGED
@@ -350,13 +474,25 @@ def dispatch_user_prompt(
 
     # Boundary 4: Persist result with guarded state machine (ACKNOWLEDGED or OUTBOUND_OUTCOME_UNKNOWN)
     # Lock interaction and item for update
-    item = db.query(ProcessingItem).filter(ProcessingItem.id == item_id).with_for_update().first()
-    interaction_locked = db.query(UserInteraction).filter(UserInteraction.id == interaction.id).with_for_update().first()
+    item = (
+        db.query(ProcessingItem)
+        .filter(ProcessingItem.id == item_id)
+        .with_for_update()
+        .first()
+    )
+    interaction_locked = (
+        db.query(UserInteraction)
+        .filter(UserInteraction.id == interaction.id)
+        .with_for_update()
+        .first()
+    )
     now_post = datetime.now(timezone.utc)
     expires = now_post + timedelta(seconds=WAITING_USER_INPUT_TTL_SECONDS)
 
     if not item or not interaction_locked:
-        logger.error(f"Item {item_id} or interaction lost before Boundary 4 finalization.")
+        logger.error(
+            f"Item {item_id} or interaction lost before Boundary 4 finalization."
+        )
         return interaction
 
     # State Guard: result finalization is ONLY allowed when interaction is in 'RESERVED' state
@@ -402,7 +538,9 @@ def dispatch_user_prompt(
             sp_ack.commit()
         except IntegrityError:
             sp_ack.rollback()
-            logger.info(f"USER_PROMPT_ACKNOWLEDGED already written for interaction {interaction_locked.id}.")
+            logger.info(
+                f"USER_PROMPT_ACKNOWLEDGED already written for interaction {interaction_locked.id}."
+            )
     else:
         interaction_locked.status = "OUTBOUND_OUTCOME_UNKNOWN"
         interaction_locked.waiting_since = now_post
@@ -440,7 +578,9 @@ def dispatch_user_prompt(
             sp_unk.commit()
         except IntegrityError:
             sp_unk.rollback()
-            logger.info(f"USER_PROMPT_OUTCOME_UNKNOWN already written for interaction {interaction_locked.id}.")
+            logger.info(
+                f"USER_PROMPT_OUTCOME_UNKNOWN already written for interaction {interaction_locked.id}."
+            )
 
     db.commit()
     db.refresh(interaction_locked)
@@ -448,6 +588,7 @@ def dispatch_user_prompt(
 
 
 # --- Answer Insertion & Application ---
+
 
 def apply_user_answer(
     db: Session,
@@ -468,9 +609,15 @@ def apply_user_answer(
         raise ValueError(f"Event {inbound_event_id} not found")
 
     # 2. Check for existing answer (idempotency read)
-    existing_answer = db.query(UserAnswer).filter(UserAnswer.inbound_event_id == inbound_event_id).first()
+    existing_answer = (
+        db.query(UserAnswer)
+        .filter(UserAnswer.inbound_event_id == inbound_event_id)
+        .first()
+    )
     if existing_answer:
-        logger.info(f"Duplicate answer event {inbound_event_id} detected. Returning committed outcome.")
+        logger.info(
+            f"Duplicate answer event {inbound_event_id} detected. Returning committed outcome."
+        )
         return existing_answer
 
     # 3. Lock active WAITING_USER_INPUT item matching tenant/user tuple
@@ -499,7 +646,9 @@ def apply_user_answer(
             .first()
         )
         if not latest_item:
-            logger.info(f"Inbound answer {inbound_event_id} has no matching processing item.")
+            logger.info(
+                f"Inbound answer {inbound_event_id} has no matching processing item."
+            )
             return UserAnswer(
                 id=str(uuid.uuid4()),
                 interaction_id=str(uuid.uuid4()),
@@ -512,7 +661,9 @@ def apply_user_answer(
 
         latest_inter = (
             db.query(UserInteraction)
-            .join(ProcessingItem, ProcessingItem.id == UserInteraction.processing_item_id)
+            .join(
+                ProcessingItem, ProcessingItem.id == UserInteraction.processing_item_id
+            )
             .filter(
                 ProcessingItem.organization_id == evt.organization_id,
                 ProcessingItem.instance_id == evt.instance_id,
@@ -523,7 +674,9 @@ def apply_user_answer(
         )
 
         if latest_inter is None:
-            logger.info(f"Inbound answer {inbound_event_id} has no matching user interaction.")
+            logger.info(
+                f"Inbound answer {inbound_event_id} has no matching user interaction."
+            )
             return UserAnswer(
                 id=str(uuid.uuid4()),
                 interaction_id=str(uuid.uuid4()),
@@ -555,7 +708,11 @@ def apply_user_answer(
             sp.commit()
         except IntegrityError:
             sp.rollback()
-            return db.query(UserAnswer).filter(UserAnswer.inbound_event_id == inbound_event_id).one()
+            return (
+                db.query(UserAnswer)
+                .filter(UserAnswer.inbound_event_id == inbound_event_id)
+                .one()
+            )
 
         db.add(
             Execution(
@@ -580,7 +737,9 @@ def apply_user_answer(
         db.query(UserInteraction)
         .filter(
             UserInteraction.processing_item_id == item.id,
-            UserInteraction.status.in_(["RESERVED", "WAITING", "OUTBOUND_OUTCOME_UNKNOWN"]),
+            UserInteraction.status.in_(
+                ["RESERVED", "WAITING", "OUTBOUND_OUTCOME_UNKNOWN"]
+            ),
         )
         .with_for_update()
         .first()
@@ -610,7 +769,11 @@ def apply_user_answer(
             sp.commit()
         except IntegrityError:
             sp.rollback()
-            return db.query(UserAnswer).filter(UserAnswer.inbound_event_id == inbound_event_id).one()
+            return (
+                db.query(UserAnswer)
+                .filter(UserAnswer.inbound_event_id == inbound_event_id)
+                .one()
+            )
 
         db.add(
             Execution(
@@ -657,7 +820,17 @@ def apply_user_answer(
         )
 
     # 4. Parse answer
-    parsed_value, error_code = parse_answer(interaction.question_type, raw_answer_text)
+    if interaction.question_type == "enterprise_selection":
+        position = raw_answer_text.strip()
+        selected = (interaction.option_mapping or {}).get(position)
+        parsed_value = (
+            selected.get("enterprise_id") if isinstance(selected, dict) else None
+        )
+        error_code = None if parsed_value is not None else "INVALID_ENTERPRISE_CHOICE"
+    else:
+        parsed_value, error_code = parse_answer(
+            interaction.question_type, raw_answer_text
+        )
 
     # Atomic insert of UserAnswer row
     answer = UserAnswer(
@@ -666,7 +839,9 @@ def apply_user_answer(
         processing_item_id=item.id,
         inbound_event_id=inbound_event_id,
         sanitized_answer=raw_answer_text.strip(),
-        parsing_result={"value": str(parsed_value)} if parsed_value is not None else None,
+        parsing_result={"value": str(parsed_value)}
+        if parsed_value is not None
+        else None,
         status="APPLIED" if parsed_value is not None else "REJECTED",
         error_code=error_code,
         applied_at=now if parsed_value is not None else None,
@@ -679,7 +854,11 @@ def apply_user_answer(
     except IntegrityError:
         sp.rollback()
         # Duplicate delivery caught by UNIQUE(inbound_event_id)
-        return db.query(UserAnswer).filter(UserAnswer.inbound_event_id == inbound_event_id).one()
+        return (
+            db.query(UserAnswer)
+            .filter(UserAnswer.inbound_event_id == inbound_event_id)
+            .one()
+        )
 
     # 5. Apply or Reject outcome
     if parsed_value is not None:
@@ -690,6 +869,8 @@ def apply_user_answer(
             item.amount = parsed_value
         elif interaction.question_type == "document_classification":
             item.document_type = str(parsed_value)
+        elif interaction.question_type == "enterprise_selection":
+            item.enterprise_id = str(parsed_value)
 
         item.status = "VALIDATING"
         item.waiting_since = None

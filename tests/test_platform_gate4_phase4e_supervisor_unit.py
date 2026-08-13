@@ -1060,7 +1060,10 @@ def test_real_worker_processing_path_ready_to_waiting() -> None:
         fw_module.running = False
         return None
 
-    def fake_dispatch(db, item_id, question_type, prompt_sender_func=None):
+    def fake_dispatch(
+        db, item_id, question_type, prompt_sender_func=None, *, worker_id=None
+    ):
+        assert worker_id == "1"
         dispatch_calls.append(f"{item_id}:{question_type}")
         return waiting_interaction
 

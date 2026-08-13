@@ -26,7 +26,9 @@ from orchestrator.services.ingestion_service import ingest_event_transaction
 logger = logging.getLogger(__name__)
 
 
-def extract_file_info(payload: dict, message_type: str, text_content: str | None) -> dict:
+def extract_file_info(
+    payload: dict, message_type: str, text_content: str | None
+) -> dict:
     data = payload.get("data") or {}
     message = data.get("message") or {}
     if not message and "messages" in data:
@@ -63,7 +65,8 @@ def extract_file_info(payload: dict, message_type: str, text_content: str | None
             "version": "1.0",
             "provider": payload.get("provider", "WUZAPI"),
             "external_instance_id": payload.get("instanceId") or data.get("instanceId"),
-            "external_message_id": (message.get("key") or {}).get("id") or payload.get("external_message_id"),
+            "external_message_id": (message.get("key") or {}).get("id")
+            or payload.get("external_message_id"),
             "direct_path": direct_path,
             "expected_sha256": file_sha256,
             "expected_size": file_size,
@@ -77,7 +80,9 @@ def extract_file_info(payload: dict, message_type: str, text_content: str | None
     return {
         "provider": payload.get("provider") or "WUZAPI",
         "external_instance_id": payload.get("instanceId") or "inst-1",
-        "external_message_id": (message.get("key") or {}).get("id") or payload.get("external_message_id") or "msg-1",
+        "external_message_id": (message.get("key") or {}).get("id")
+        or payload.get("external_message_id")
+        or "msg-1",
         "message_type": message_type,
         "file_mime_type": mime_type,
         "file_size": int(file_size),
@@ -257,15 +262,6 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
                 "ext_msg_id": external_message_id,
             },
         )
-        event = (
-            db.query(Event)
-            .filter_by(
-                provider=provider,
-                external_instance_id=external_instance_id,
-                external_message_id=external_message_id,
-            )
-            .first()
-        )
         if message_type == "text":
             db.commit()
             return {"status": "ok", "detail": "idempotent duplicate"}
@@ -387,9 +383,70 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
         if (
             message_type == "text"
             and text_content
+            and text_content.strip().lower() == "/empreendimento"
+        ):
+            from orchestrator.services.enterprise_command_service import (
+                BUSY_MESSAGE,
+                finalize_enterprise_command_dispatch,
+                format_enterprise_command_prompt,
+                open_enterprise_command_session,
+                reserve_busy_response,
+                reserve_enterprise_command_dispatch,
+            )
+
+            result = open_enterprise_command_session(
+                db,
+                instance.organization_id,
+                instance.id,
+                user.id,
+                event.id,
+                correlation_id,
+            )
+            if result.status == "DOCUMENT_INTERACTION_BUSY":
+                event.status = "ENTERPRISE_COMMAND_DOCUMENT_BUSY"
+                should_send = reserve_busy_response(db, event, correlation_id)
+                if should_send:
+                    try:
+                        await WuzapiClient().send_text_message(phone_norm, BUSY_MESSAGE)
+                    except WuzapiError as exc:
+                        event.error_code = "WUZAPI_SEND_FAILED"
+                        event.error_message_sanitized = str(exc)
+                        db.commit()
+                return {"status": "ok", "detail": "enterprise_command_document_busy"}
+
+            session = result.session
+            if session is None:
+                raise HTTPException(
+                    status_code=503, detail="Enterprise command unavailable"
+                )
+            event.status = "ENTERPRISE_COMMAND_OPEN"
+            db.commit()
+            if session.status == "RESERVED" and reserve_enterprise_command_dispatch(
+                db, session, event.id, correlation_id
+            ):
+                acknowledged = False
+                try:
+                    await WuzapiClient().send_text_message(
+                        phone_norm, format_enterprise_command_prompt(session)
+                    )
+                    acknowledged = True
+                except WuzapiError:
+                    acknowledged = False
+                finalize_enterprise_command_dispatch(db, session.id, acknowledged)
+            elif session.status == "RESERVED":
+                finalize_enterprise_command_dispatch(db, session.id, False)
+            return {"status": "ok", "detail": "enterprise_command_open"}
+
+        # Phase 4E Command Routing: /cancelar
+        if (
+            message_type == "text"
+            and text_content
             and text_content.strip().lower() == "/cancelar"
         ):
-            from orchestrator.services.cancel_command_handler import handle_cancel_command
+            from orchestrator.services.cancel_command_handler import (
+                handle_cancel_command,
+            )
+
             cancelled_item = handle_cancel_command(
                 db=db,
                 organization_id=instance.organization_id,
@@ -427,8 +484,42 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
                     db.commit()
                 return {"status": "ok", "detail": "cancel_no_waiting_item"}
 
+        # Gate 7 command answers own non-command text before document answers.
+        from db.models import EnterpriseCommandSession, ProcessingItem
+
+        open_enterprise_command = (
+            db.query(EnterpriseCommandSession.id)
+            .filter(
+                EnterpriseCommandSession.organization_id == instance.organization_id,
+                EnterpriseCommandSession.instance_id == instance.id,
+                EnterpriseCommandSession.user_id == user.id,
+                EnterpriseCommandSession.status.in_(
+                    ["RESERVED", "WAITING", "OUTBOUND_OUTCOME_UNKNOWN"]
+                ),
+            )
+            .first()
+        )
+        if message_type == "text" and open_enterprise_command:
+            from orchestrator.services.enterprise_command_service import (
+                apply_enterprise_command_answer,
+            )
+
+            answer = apply_enterprise_command_answer(
+                db,
+                instance.organization_id,
+                instance.id,
+                user.id,
+                event.id,
+                text_content or "",
+            )
+            event.status = f"ENTERPRISE_COMMAND_ANSWER_{answer.status}"
+            db.commit()
+            return {
+                "status": "ok",
+                "detail": f"enterprise_command_answer_{answer.status.lower()}",
+            }
+
         # Phase 4E Interaction Routing: Inbound Answer for WAITING_USER_INPUT
-        from db.models import ProcessingItem
         waiting_item = (
             db.query(ProcessingItem)
             .filter(
@@ -442,7 +533,10 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
 
         if message_type == "text" and waiting_item:
             from orchestrator.services.user_interaction_service import apply_user_answer
-            ans = apply_user_answer(db, inbound_event_id=event.id, raw_answer_text=text_content or "")
+
+            ans = apply_user_answer(
+                db, inbound_event_id=event.id, raw_answer_text=text_content or ""
+            )
             if ans.status == "APPLIED":
                 event.status = "ANSWER_APPLIED"
                 db.commit()
@@ -471,6 +565,34 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
                     event.error_message_sanitized = str(e)
                     db.commit()
                 return {"status": "ok", "detail": "answer_rejected"}
+
+        # A recent terminal command generation is durable provenance for a
+        # late command answer, but an active document interaction keeps
+        # precedence over closed command history.
+        if message_type == "text" and not waiting_item:
+            from orchestrator.services.enterprise_command_service import (
+                apply_enterprise_command_answer,
+                find_recent_closed_command_for_late_answer,
+            )
+
+            recent_closed = find_recent_closed_command_for_late_answer(
+                db, instance.organization_id, instance.id, user.id
+            )
+            if recent_closed is not None:
+                answer = apply_enterprise_command_answer(
+                    db,
+                    instance.organization_id,
+                    instance.id,
+                    user.id,
+                    event.id,
+                    text_content or "",
+                )
+                event.status = f"ENTERPRISE_COMMAND_ANSWER_{answer.status}"
+                db.commit()
+                return {
+                    "status": "ok",
+                    "detail": f"enterprise_command_answer_{answer.status.lower()}",
+                }
 
         # Phase 4E Text Routing: Text message without waiting item
         if message_type == "text" and not waiting_item:

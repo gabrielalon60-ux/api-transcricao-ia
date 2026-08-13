@@ -15,6 +15,7 @@ TERMINAL_STATUSES = (
     "FAILED",
     "EXPIRED",
     "CANCELLED",
+    "IGNORED",
 )
 
 
@@ -100,7 +101,10 @@ def create_processable_processing_item(
         message_received_at=event.received_at,
         file_mime_type=file_info.get("file_mime_type", "application/octet-stream"),
         file_size=file_info.get("file_size", 0),
-        file_sha256=file_info.get("file_sha256", "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"),
+        file_sha256=file_info.get(
+            "file_sha256",
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        ),
         original_filename=file_info.get("original_filename"),
         media_ref=file_info.get("media_ref"),
     )
@@ -132,7 +136,10 @@ def create_capacity_rejected_processing_item(
         message_received_at=event.received_at,
         file_mime_type=file_info.get("file_mime_type", "application/octet-stream"),
         file_size=file_info.get("file_size", 0),
-        file_sha256=file_info.get("file_sha256", "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"),
+        file_sha256=file_info.get(
+            "file_sha256",
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        ),
         original_filename=file_info.get("original_filename"),
         media_ref=file_info.get("media_ref"),
     )

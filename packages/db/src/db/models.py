@@ -230,9 +230,7 @@ class ProcessingItem(Base):
     instance_id: Mapped[str] = mapped_column(
         String, ForeignKey("instances.id"), nullable=False
     )
-    user_id: Mapped[str] = mapped_column(
-        String, ForeignKey("users.id"), nullable=False
-    )
+    user_id: Mapped[str] = mapped_column(String, ForeignKey("users.id"), nullable=False)
     sequence: Mapped[Optional[int]] = mapped_column(sa.BigInteger, nullable=True)
     status: Mapped[str] = mapped_column(String, default="RECEIVED", nullable=False)
 
@@ -255,7 +253,9 @@ class ProcessingItem(Base):
     file_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
     original_filename: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     media_ref: Mapped[Optional[dict]] = mapped_column(sa.JSON, nullable=True)
-    extraction_claim_token: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    extraction_claim_token: Mapped[Optional[str]] = mapped_column(
+        String(64), nullable=True
+    )
 
     # Normalized Extraction Payload
     document_type: Mapped[Optional[str]] = mapped_column(String, nullable=True)
@@ -274,9 +274,11 @@ class ProcessingItem(Base):
     )
     date_source: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     direction: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    enterprise_id: Mapped[Optional[str]] = mapped_column(String, nullable=True)
 
     # Interactive State Fields
     question_type: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    outcome_reason: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     waiting_since: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
@@ -294,12 +296,8 @@ class ProcessingItem(Base):
     persistence_generation: Mapped[int] = mapped_column(
         sa.Integer, default=0, nullable=False
     )
-    persistence_claimed_by: Mapped[Optional[str]] = mapped_column(
-        String, nullable=True
-    )
-    persistence_claim_kind: Mapped[Optional[str]] = mapped_column(
-        String, nullable=True
-    )
+    persistence_claimed_by: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    persistence_claim_kind: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     persistence_lease_expires_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
@@ -364,8 +362,13 @@ class ProcessingItem(Base):
             name="ck_processing_items_persistence_attempt_count_non_negative",
         ),
         sa.CheckConstraint(
-            "status IN ('RECEIVED', 'EXTRACTING', 'EXTRACTED', 'READY', 'ACTIVE', 'VALIDATING', 'WAITING_USER_INPUT', 'PERSISTING', 'PERSIST_RETRYABLE', 'PERSIST_OUTCOME_UNKNOWN', 'COMPLETED', 'EXTRACTION_FAILED', 'PERSISTENCE_FAILED', 'FAILED', 'EXPIRED', 'CANCELLED')",
+            "status IN ('RECEIVED', 'EXTRACTING', 'EXTRACTED', 'READY', 'ACTIVE', 'VALIDATING', 'WAITING_USER_INPUT', 'PERSISTING', 'PERSIST_RETRYABLE', 'PERSIST_OUTCOME_UNKNOWN', 'COMPLETED', 'EXTRACTION_FAILED', 'PERSISTENCE_FAILED', 'FAILED', 'EXPIRED', 'CANCELLED', 'IGNORED')",
             name="ck_processing_items_status_valid",
+        ),
+        sa.CheckConstraint(
+            "(status = 'IGNORED' AND outcome_reason IS NOT DISTINCT FROM 'INCOME_OUT_OF_SCOPE') OR "
+            "(status <> 'IGNORED' AND outcome_reason IS NULL)",
+            name="ck_processing_items_ignored_reason_valid",
         ),
         sa.Index(
             "uq_processing_items_one_active_per_conversation",
@@ -391,7 +394,7 @@ class ProcessingItem(Base):
             "instance_id",
             "user_id",
             postgresql_where=sa.text(
-                "status NOT IN ('COMPLETED', 'EXTRACTION_FAILED', 'PERSISTENCE_FAILED', 'FAILED', 'EXPIRED', 'CANCELLED')"
+                "status NOT IN ('COMPLETED', 'EXTRACTION_FAILED', 'PERSISTENCE_FAILED', 'FAILED', 'EXPIRED', 'CANCELLED', 'IGNORED')"
             ),
         ),
         sa.Index(
@@ -426,7 +429,9 @@ class Execution(Base):
     component: Mapped[str] = mapped_column(String, nullable=False)
     operation: Mapped[str] = mapped_column(String, nullable=False)
     outbound_message_id: Mapped[Optional[str]] = mapped_column(String, nullable=True)
-    operation_idempotency_key: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    operation_idempotency_key: Mapped[Optional[str]] = mapped_column(
+        String(512), nullable=True
+    )
     status: Mapped[str] = mapped_column(String, nullable=False)
     effect_status: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     external_reference: Mapped[Optional[str]] = mapped_column(String, nullable=True)
@@ -541,6 +546,7 @@ class UserInteraction(Base):
     question_type: Mapped[str] = mapped_column(String, nullable=False)
     outbound_message_id: Mapped[str] = mapped_column(String, nullable=False)
     status: Mapped[str] = mapped_column(String, nullable=False)
+    option_mapping: Mapped[Optional[dict]] = mapped_column(sa.JSON, nullable=True)
     waiting_since: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
@@ -554,18 +560,31 @@ class UserInteraction(Base):
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
     )
 
     __table_args__ = (
         sa.UniqueConstraint(
-            "processing_item_id", "generation", name="uq_user_interactions_item_generation"
+            "processing_item_id",
+            "generation",
+            name="uq_user_interactions_item_generation",
         ),
-        sa.UniqueConstraint("outbound_message_id", name="uq_user_interactions_outbound_msg"),
-        sa.CheckConstraint("generation > 0", name="ck_user_interactions_generation_positive"),
+        sa.UniqueConstraint(
+            "outbound_message_id", name="uq_user_interactions_outbound_msg"
+        ),
         sa.CheckConstraint(
-            "question_type IN ('transaction_direction', 'transaction_amount', 'document_classification')",
+            "generation > 0", name="ck_user_interactions_generation_positive"
+        ),
+        sa.CheckConstraint(
+            "question_type IN ('transaction_direction', 'transaction_amount', 'document_classification', 'enterprise_selection')",
             name="ck_user_interactions_question_type_valid",
+        ),
+        sa.CheckConstraint(
+            "question_type <> 'enterprise_selection' OR option_mapping IS NOT NULL",
+            name="ck_user_interactions_enterprise_options_required",
         ),
         sa.CheckConstraint(
             "status IN ('RESERVED', 'WAITING', 'ANSWERED', 'CANCELLED', 'EXPIRED', 'OUTBOUND_OUTCOME_UNKNOWN')",
@@ -606,7 +625,10 @@ class UserAnswer(Base):
         String, ForeignKey("processing_items.id", ondelete="RESTRICT"), nullable=False
     )
     inbound_event_id: Mapped[str] = mapped_column(
-        String, ForeignKey("events.id", ondelete="RESTRICT"), nullable=False, unique=True
+        String,
+        ForeignKey("events.id", ondelete="RESTRICT"),
+        nullable=False,
+        unique=True,
     )
     sanitized_answer: Mapped[Optional[str]] = mapped_column(sa.Text, nullable=True)
     parsing_result: Mapped[Optional[dict]] = mapped_column(sa.JSON, nullable=True)
@@ -622,7 +644,10 @@ class UserAnswer(Base):
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
     )
 
     __table_args__ = (
@@ -630,5 +655,161 @@ class UserAnswer(Base):
         sa.CheckConstraint(
             "status IN ('RECEIVED', 'APPLIED', 'REJECTED', 'LATE')",
             name="ck_user_answers_status_valid",
+        ),
+    )
+
+
+class WhatsappChatEnterpriseBinding(Base):
+    __tablename__ = "whatsapp_chat_enterprise_bindings"
+
+    id: Mapped[str] = mapped_column(
+        String, primary_key=True, default=lambda: str(uuid.uuid4())
+    )
+    organization_id: Mapped[str] = mapped_column(
+        String, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
+    )
+    instance_id: Mapped[str] = mapped_column(
+        String, ForeignKey("instances.id", ondelete="CASCADE"), nullable=False
+    )
+    user_id: Mapped[str] = mapped_column(
+        String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    enterprise_id: Mapped[str] = mapped_column(String, nullable=False)
+    source_command_session_id: Mapped[Optional[str]] = mapped_column(
+        String, nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    __table_args__ = (
+        sa.UniqueConstraint(
+            "organization_id",
+            "instance_id",
+            "user_id",
+            name="uq_whatsapp_chat_enterprise_binding_conversation",
+        ),
+    )
+
+
+class EnterpriseCommandSession(Base):
+    __tablename__ = "enterprise_command_sessions"
+
+    id: Mapped[str] = mapped_column(
+        String, primary_key=True, default=lambda: str(uuid.uuid4())
+    )
+    organization_id: Mapped[str] = mapped_column(
+        String, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
+    )
+    instance_id: Mapped[str] = mapped_column(
+        String, ForeignKey("instances.id", ondelete="CASCADE"), nullable=False
+    )
+    user_id: Mapped[str] = mapped_column(
+        String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    generation: Mapped[int] = mapped_column(sa.Integer, nullable=False)
+    status: Mapped[str] = mapped_column(String, nullable=False)
+    option_mapping: Mapped[dict] = mapped_column(sa.JSON, nullable=False)
+    clear_option_position: Mapped[int] = mapped_column(sa.Integer, nullable=False)
+    outbound_message_id: Mapped[str] = mapped_column(
+        String, nullable=False, unique=True
+    )
+    waiting_since: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    resolved_by_event_id: Mapped[Optional[str]] = mapped_column(
+        String, ForeignKey("events.id", ondelete="RESTRICT"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    __table_args__ = (
+        sa.UniqueConstraint(
+            "organization_id",
+            "instance_id",
+            "user_id",
+            "generation",
+            name="uq_enterprise_command_session_generation",
+        ),
+        sa.CheckConstraint(
+            "generation > 0", name="ck_enterprise_command_generation_positive"
+        ),
+        sa.CheckConstraint(
+            "clear_option_position > 0",
+            name="ck_enterprise_command_clear_position_positive",
+        ),
+        sa.CheckConstraint(
+            "status IN ('RESERVED', 'WAITING', 'OUTBOUND_OUTCOME_UNKNOWN', 'ANSWERED', 'EXPIRED', 'CANCELLED')",
+            name="ck_enterprise_command_status_valid",
+        ),
+        sa.CheckConstraint(
+            "(status IN ('WAITING', 'OUTBOUND_OUTCOME_UNKNOWN') AND waiting_since IS NOT NULL AND expires_at IS NOT NULL) "
+            "OR status NOT IN ('WAITING', 'OUTBOUND_OUTCOME_UNKNOWN')",
+            name="ck_enterprise_command_waiting_timestamps",
+        ),
+        sa.CheckConstraint(
+            "(status IN ('ANSWERED', 'EXPIRED', 'CANCELLED') AND resolved_at IS NOT NULL) "
+            "OR status NOT IN ('ANSWERED', 'EXPIRED', 'CANCELLED')",
+            name="ck_enterprise_command_resolved_timestamp",
+        ),
+        sa.Index(
+            "uq_enterprise_command_one_open_per_conversation",
+            "organization_id",
+            "instance_id",
+            "user_id",
+            unique=True,
+            postgresql_where=sa.text(
+                "status IN ('RESERVED', 'WAITING', 'OUTBOUND_OUTCOME_UNKNOWN')"
+            ),
+        ),
+    )
+
+
+class EnterpriseCommandAnswer(Base):
+    __tablename__ = "enterprise_command_answers"
+
+    id: Mapped[str] = mapped_column(
+        String, primary_key=True, default=lambda: str(uuid.uuid4())
+    )
+    session_id: Mapped[str] = mapped_column(
+        String,
+        ForeignKey("enterprise_command_sessions.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    inbound_event_id: Mapped[str] = mapped_column(
+        String, ForeignKey("events.id", ondelete="RESTRICT"), nullable=False
+    )
+    sanitized_answer: Mapped[Optional[str]] = mapped_column(sa.Text)
+    parsing_result: Mapped[Optional[dict]] = mapped_column(sa.JSON)
+    status: Mapped[str] = mapped_column(String, nullable=False)
+    error_code: Mapped[Optional[str]] = mapped_column(String)
+    received_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    applied_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    __table_args__ = (
+        sa.UniqueConstraint(
+            "inbound_event_id", name="uq_enterprise_command_answers_inbound_event"
+        ),
+        sa.CheckConstraint(
+            "status IN ('APPLIED', 'REJECTED', 'LATE')",
+            name="ck_enterprise_command_answers_status_valid",
         ),
     )

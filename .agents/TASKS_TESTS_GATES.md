@@ -355,7 +355,7 @@ Status:
 - Gate 6 overall: APPROVED on 2026-08-08.
 - G6-APPROVED: true.
 - Gate 6 migrations: NONE REQUIRED.
-- Gate 7: NOT STARTED.
+- Gate 7: APPROVED / COMPLETE; implementation COMPLETE, verification PASSED, final review APPROVED; `G7-APPROVED = true`.
 - Gate 8: NOT STARTED.
 
 ### Tasks
@@ -401,34 +401,200 @@ Status:
 
 ## GATE 7 — Database Writer
 
-Status: **NOT STARTED**.
+Status: **APPROVED / COMPLETE**; implementation **COMPLETE**, verification **PASSED**, final review **APPROVED**.
+
+Planning inputs updated on 2026-08-11:
+- approved local MVP business destination is **expense-only**;
+- Gate 5/6 `income|expense` evaluation remains frozen;
+- local logical contracts are known for `financial_records`, `suppliers`, and `enterprises`;
+- production enterprise schema remains external input;
+- enterprise resolution is implemented as a post-Gate-6/pre-persistence requirement;
+- effective `income` has the approved additive terminal outcome `IGNORED / INCOME_OUT_OF_SCOPE`, releases FIFO, and bypasses amount, enterprise, supplier, Writer, persistence retry, and Gate 7 final notification;
+- Gate 8 owns the future idempotent informational message for `IGNORED / INCOME_OUT_OF_SCOPE`;
+- the final Gate 7 HOLD contract and plan were approved; local MVP Phase A implementation was authorized and completed;
+- both new migrations were created and executed only in disposable PostgreSQL 15 verification;
+- production Phase B and persistent/staging/production/remote migration execution remain unauthorized;
+- `G7-APPROVED = true`; formal implementation acceptance is complete; Gate 8 is NOT STARTED.
 
 ### Tasks
-- [ ] **G7-T01 P0** Fechar schema DF.
-- [ ] **G7-T02 P0** Contrato write.
-- [ ] **G7-T03 P0** Secret da conexão.
-- [ ] **G7-T04 P0** TLS.
-- [ ] **G7-T05 P0** Usuário DB mínimo.
-- [ ] **G7-T06 P0** Validação request.
-- [ ] **G7-T07 P0** Transação.
-- [ ] **G7-T08 P0** Idempotency key.
-- [ ] **G7-T09 P0** Timeout.
-- [ ] **G7-T10 P0** Retry técnico.
-- [ ] **G7-T11 P0** Sanitização de erros.
-- [ ] **G7-T12 P0** Return record ID.
+- [x] **G7-T01 P0** Fechar schema DF.
+- [x] **G7-T02 P0** Contrato write.
+- [x] **G7-T03 P0** Secret da conexão.
+- [x] **G7-T04 P0** TLS.
+- [x] **G7-T05 P0** Usuário DB mínimo.
+- [x] **G7-T06 P0** Validação request.
+- [x] **G7-T07 P0** Transação.
+- [x] **G7-T08 P0** Idempotency key.
+- [x] **G7-T09 P0** Timeout.
+- [x] **G7-T10 P0** Retry técnico.
+- [x] **G7-T11 P0** Sanitização de erros.
+- [x] **G7-T12 P0** Return record ID.
+- [x] **G7-T13 P0** Local MVP `financial_records` expense-only contract and defaults (`expense_type_id=NULL`, `comments=NULL`, `is_deleted=false`, `deleted_at=NULL`, `origin=WHATSAPP`).
+- [x] **G7-T14 P0** Local MVP read-only supplier lookup by normalized unique CNPJ, with snapshot provenance and duplicate-match fail-closed behavior.
+- [x] **G7-T15 P0** Local MVP enterprise read contract and mandatory `enterprise_id` before Writer DML.
+- [x] **G7-T16 P0** Persistent `/empreendimento` command with dynamic deterministic list, durable option-position mapping, and last option `Limpar seleção`.
+- [x] **G7-T17 P0** Platform-side idempotent chat-enterprise binding and clear operation; no supplier/enterprise DML.
+- [x] **G7-T18 P0** Per-document enterprise clarification when no persistent binding exists; answer applies only to the active `ProcessingItem`.
+- [x] **G7-T19 P0** Enterprise precedence: persistent chat binding, otherwise document-specific answer; unresolved enterprise forbids Writer POST.
+- [x] **G7-T20 P0** Additive Platform interaction/storage contract for `enterprise_selection`, durable option mapping, and `ProcessingItem.enterprise_id`, subject to separate migration approval.
+- [x] **G7-T21 P0** Expense-only early runtime guard: effective `income` atomically becomes terminal `IGNORED` with durable `outcome_reason=INCOME_OUT_OF_SCOPE`, clears claims, and performs zero amount/enterprise question, supplier lookup, expense Writer POST/row, persistence retry, or Gate 7 final notification.
+- [x] **G7-T22 P0** Versioned Writer request carrying resolved `enterprise_id`, effective `transaction_date`, `date_source`, and optional normalized supplier CNPJ snapshot.
+- [x] **G7-T23 P0** Writer/adapter privileges: INSERT financial record; read-only suppliers/enterprises; same-transaction idempotency ledger.
+- [x] **G7-T24 P0** Separate local-MVP schema/migration plan from future client-database DDL/adoption; neither execution is authorized by planning.
+- [x] **G7-T25 P0** Enforce one active human interaction across `UserInteraction` and `EnterpriseCommandSession` by locking the exact `conversation_queue_counters` row before cross-table check/create; retain per-table partial indexes as defense-in-depth.
+- [x] **G7-T26 P0** Command-first inbound text routing, including idempotent busy response for `/empreendimento` during a document question and exclusive numeric-answer ownership.
+- [x] **G7-T27 P0** Durable enterprise-command reservation/dispatch/outbound-unknown/answer/expiry lifecycle with dedicated idempotent command answers and no blind resend.
 
 ### Tests
-- [ ] **G7-X01** Write happy path.
-- [ ] **G7-X02** Mesma idempotency key → um registro.
-- [ ] **G7-X03** Timeout/retry sem duplicidade.
-- [ ] **G7-X04** Campo inválido → sem retry.
-- [ ] **G7-X05** Falha parcial → rollback.
-- [ ] **G7-X06** BOT não possui DB URL DF.
-- [ ] **G7-X07** Orchestrator não possui DB URL DF.
-- [ ] **G7-X08** Credencial ausente de logs.
-- [ ] **G7-X09** Usuário DB não consegue operação indevida.
+- [x] **G7-X01** Write happy path.
+- [x] **G7-X02** Mesma idempotency key → um registro.
+- [x] **G7-X03** Timeout/retry sem duplicidade.
+- [x] **G7-X04** Campo inválido → sem retry.
+- [x] **G7-X05** Falha parcial → rollback.
+- [x] **G7-X06** BOT não possui DB URL DF.
+- [x] **G7-X07** Orchestrator não possui DB URL DF.
+- [x] **G7-X08** Credencial ausente de logs.
+- [x] **G7-X09** Usuário DB não consegue operação indevida.
+- [x] **G7-X10** `expense` completo + empreendimento resolvido grava um `financial_records` e retorna record ID.
+- [x] **G7-X11** Effective `income` becomes `IGNORED / INCOME_OUT_OF_SCOPE`, calls no expense Writer, creates zero `financial_records` row, performs zero supplier lookup, and sends zero Gate 7 final notification.
+- [x] **G7-X12** CNPJ de fornecedor com uma correspondência exata preenche `supplier_id` e preserva snapshot.
+- [x] **G7-X13** Fornecedor desconhecido mantém `supplier_id = NULL` e preserva `supplier_cnpj_snapshot`.
+- [x] **G7-X14** CNPJ duplicado em fornecedores falha fechado, sem escolher linha e sem INSERT financeiro.
+- [x] **G7-X15** Criação WhatsApp grava `expense_type_id=NULL`, `comments=NULL`, `origin=WHATSAPP`, `is_deleted=false`, `deleted_at=NULL`.
+- [x] **G7-X16** `/empreendimento` persiste o `enterprise_id` real selecionado para a conversa 1:1.
+- [x] **G7-X17** Última opção dinâmica `Limpar seleção` remove o vínculo; não existe comando separado de limpeza.
+- [x] **G7-X18** Mapa durável `posição -> enterprise_id` preserva o significado da resposta mesmo após reordenação do cadastro.
+- [x] **G7-X19** Vínculo persistente resolve automaticamente empreendimento de documento futuro.
+- [x] **G7-X20** Sem vínculo, item entra em pergunta de empreendimento e permanece FIFO-bloqueante.
+- [x] **G7-X21** Resposta de empreendimento por documento materializa somente o item e não cria vínculo do chat.
+- [x] **G7-X22** Enterprise não resolvida causa zero Writer POST.
+- [x] **G7-X23** Fluxo WhatsApp não cria, edita nem exclui fornecedor.
+- [x] **G7-X24** Fluxo WhatsApp não cria, edita nem exclui empreendimento.
+- [x] **G7-X25** Expiração/cancelamento da pergunta por documento segue o lifecycle aprovado; interação de comando usa seu contrato próprio sem fabricar `ProcessingItem`.
+- [x] **G7-X26** Role local do Writer pode ler suppliers/enterprises e inserir financial_records/ledger, mas não pode alterar cadastros nem executar DDL/DELETE/TRUNCATE.
+- [x] **G7-X27** Once direction is known as `income`, no `transaction_amount` or `enterprise_selection` interaction is created.
+- [x] **G7-X28** `IGNORED` is terminal/non-blocking: the next same-conversation sequence becomes claimable.
+- [x] **G7-X29** Claim, startup recovery, stale recovery, replay, cancellation, interaction lookup, persistence dispatch/retry, and reconciliation never reopen or select `IGNORED`.
+- [x] **G7-X30** Gate 8 mapping is documented exactly: `IGNORED / INCOME_OUT_OF_SCOPE` idempotently sends the approved informational message, while Gate 7 sends none.
+- [x] **G7-X31** Open `transaction_amount` plus concurrent `/empreendimento`: document interaction remains the sole owner; command creates no session and returns the idempotent busy response.
+- [x] **G7-X32** Open enterprise command plus worker requiring `transaction_direction`: command remains sole owner; no UserInteraction or prompt is created.
+- [x] **G7-X33** Simultaneous command-session and document-prompt creation under physical PostgreSQL concurrency: exactly one OPEN owner commits and both tables are never OPEN together.
+- [x] **G7-X34** OPEN command plus new document: ingestion/extraction/normalization and READY persist, but same-conversation business claim is blocked; other conversations proceed.
+- [x] **G7-X35** Command ANSWERED with enterprise selection: barrier closes, earliest deferred/READY item resumes and observes the new binding.
+- [x] **G7-X36** Command ANSWERED with `Limpar seleção`: barrier closes, earliest item resumes and uses normal per-document enterprise fallback when required.
+- [x] **G7-X37** Command EXPIRED: prior binding remains unchanged, no document is expired/cancelled, and earliest work resumes.
+- [x] **G7-X38** Duplicate/concurrent numeric command answer changes the binding at most once and returns the durable committed outcome on replay.
+- [x] **G7-X39** Valid answer to `OUTBOUND_OUTCOME_UNKNOWN` is accepted against the stable mapping/outbound identity with zero resend.
+- [x] **G7-X40** `/empreendimento` during `transaction_amount` is parsed only as a command and never as an amount answer.
+- [x] **G7-X41** Numeric command selection is routed only to the OPEN command session and never to UserInteraction.
 
-- [ ] **G7-APPROVED**
+### Previous correction evidence mapping (superseded by Correction Pass 2)
+
+Every authoritative acceptance ID is tied to executable evidence (function names are exact):
+
+- **G7-X01** â€” `test_v2_happy_path_supplier_match_and_replay`.
+- **G7-X02** â€” `test_concurrent_same_key_serializes_before_financial_insert` and `test_v2_happy_path_supplier_match_and_replay`.
+- **G7-X03** â€” `test_precommit_operational_error_is_retryable`, `test_deadline_exhaustion_starts_no_business_dml`, and `test_writer_deadline_refuses_new_db_operation`.
+- **G7-X04** â€” `test_v2_strict_invalid_shapes_are_rejected` and `test_v2_amount_rejects_noncanonical_values`.
+- **G7-X05** â€” `test_flush_integrity_error_is_sanitized_rejection` and `test_missing_enterprise_rejects_and_rolls_back`.
+- **G7-X06** â€” `test_orchestrator_settings_has_no_df_database_url`.
+- **G7-X07** â€” `test_orchestrator_settings_has_no_df_database_url`.
+- **G7-X08** â€” `test_writer_generic_handler_is_sanitized`, `test_writer_tls_validation_does_not_accept_substring_trick`, and `test_writer_requires_database_url_and_explicit_disposable_insecure_mode`.
+- **G7-X09** â€” `test_disposable_writer_role_is_least_privilege` (physical restricted-role operations).
+- **G7-X10** â€” `test_v2_happy_path_supplier_match_and_replay`.
+- **G7-X11** â€” `test_income_ignored_releases_fifo_and_is_not_recovered`, `test_known_income_skips_amount_requirement_in_decision_composition`, and `test_income_guard_precedes_questions_and_persistence`.
+- **G7-X12** â€” `test_v2_happy_path_supplier_match_and_replay`.
+- **G7-X13** â€” `test_unknown_supplier_is_nullable_and_snapshot_preserved`.
+- **G7-X14** â€” `test_duplicate_supplier_lookup_fails_closed_before_insert`.
+- **G7-X15** â€” `test_v2_happy_path_supplier_match_and_replay`.
+- **G7-X16** â€” `test_command_selection_upserts_and_clear_deletes_binding`.
+- **G7-X17** â€” `test_command_selection_upserts_and_clear_deletes_binding` and `test_command_prompt_appends_clear_as_n_plus_one`.
+- **G7-X18** â€” `test_enterprise_options_are_deterministic_and_store_real_ids`, `test_document_enterprise_prompt_uses_durable_mapping`, and `test_invalid_duplicate_and_late_command_answers`.
+- **G7-X19** â€” `test_current_binding_materializes_for_future_document` and `test_stale_binding_is_preserved_but_not_materialized`.
+- **G7-X20** â€” `test_document_enterprise_answer_materializes_item_only` and frozen `test_7_prompt_dispatch_and_answer_flow`.
+- **G7-X21** â€” `test_document_enterprise_answer_materializes_item_only`.
+- **G7-X22** â€” `test_missing_enterprise_rejects_and_rolls_back` and `test_persistence_transition_fails_closed_on_missing_prerequisite`.
+- **G7-X23** â€” `test_disposable_writer_role_is_least_privilege` (supplier DML denied) and `test_v2_happy_path_supplier_match_and_replay` (lookup only).
+- **G7-X24** â€” `test_enterprise_api_is_minimal_and_read_only` and `test_disposable_writer_role_is_least_privilege` (enterprise DML denied).
+- **G7-X25** â€” frozen `test_10_cancel_command_and_unblocking_eligibility`, frozen `test_11_expiration_sweeper_and_unblocking_eligibility`, and `test_terminal_item_cannot_reserve_prompt`.
+- **G7-X26** â€” `test_disposable_writer_role_is_least_privilege`.
+- **G7-X27** â€” `test_known_income_skips_amount_requirement_in_decision_composition` and `test_income_guard_precedes_questions_and_persistence`.
+- **G7-X28** â€” `test_income_ignored_releases_fifo_and_is_not_recovered`.
+- **G7-X29** â€” `test_income_ignored_releases_fifo_and_is_not_recovered`, `test_ignored_constraint_rejects_wrong_reason`, and `test_terminal_item_cannot_reserve_prompt`.
+- **G7-X30** â€” `test_income_guard_precedes_questions_and_persistence` plus the exact Gate 8 ownership assertion in this authoritative gate ledger; Gate 7 contains no final-notification call.
+- **G7-X31** â€” `test_open_document_interaction_makes_command_busy` (including zero enterprise-list call and unchanged TTL).
+- **G7-X32** â€” `test_both_open_protocols_use_shared_counter_lock` and `test_simultaneous_command_and_document_prompt_exactly_one_owner`.
+- **G7-X33** â€” `test_simultaneous_command_and_document_prompt_exactly_one_owner`.
+- **G7-X34** â€” `test_open_command_blocks_ready_then_answer_resumes` and `test_ready_claim_has_query_and_locked_command_barrier`.
+- **G7-X35** â€” `test_open_command_blocks_ready_then_answer_resumes`.
+- **G7-X36** â€” `test_clear_command_releases_ready_item_to_document_fallback`.
+- **G7-X37** â€” `test_reserved_command_expiry_releases_without_binding_change`.
+- **G7-X38** â€” `test_concurrent_same_event_command_answer_is_applied_once` and `test_invalid_duplicate_and_late_command_answers`.
+- **G7-X39** â€” `test_outcome_unknown_answer_uses_stable_mapping_without_resend`.
+- **G7-X40** â€” `test_new_normal_text_routes_without_unbound_event_crash` and `test_open_document_interaction_makes_command_busy`.
+- **G7-X41** â€” `test_router_sends_numeric_answer_only_to_open_command`, `test_command_answer_does_not_reuse_user_answer`, and `test_router_records_late_answer_for_recent_expired_command`.
+
+### Correction Pass 2 authoritative acceptance evidence
+
+Every G7-X acceptance has direct executable evidence. Function names and evidence types are exact:
+
+- **G7-X01** [DISPOSABLE POSTGRES] - `test_v2_happy_path_supplier_match_and_replay`.
+- **G7-X02** [DISPOSABLE POSTGRES] - `test_concurrent_same_key_serializes_before_financial_insert` and `test_v2_happy_path_supplier_match_and_replay`.
+- **G7-X03** [DISPOSABLE POSTGRES, UNIT] - `test_precommit_operational_error_is_retryable`, `test_deadline_exhaustion_starts_no_business_dml`, `test_post_race_zero_budget_starts_no_lookup_and_retries_known_rollback`, `test_post_race_lookup_uses_remaining_budget`, and `test_post_race_lookup_does_not_start_after_deadline`.
+- **G7-X04** [DISPOSABLE POSTGRES, UNIT] - `test_v2_strict_invalid_shapes_are_rejected`, `test_invalid_v2_amount_is_rejected_before_hash_or_database`, and `test_v2_amount_rejects_noncanonical_values`.
+- **G7-X05** [DISPOSABLE POSTGRES] - `test_flush_integrity_error_is_sanitized_rejection` and `test_missing_enterprise_rejects_and_rolls_back`.
+- **G7-X06** [UNIT] - `test_orchestrator_settings_has_no_df_database_url`.
+- **G7-X07** [UNIT] - `test_orchestrator_settings_has_no_df_database_url`.
+- **G7-X08** [UNIT] - `test_writer_generic_handler_is_sanitized`, `test_writer_tls_validation_does_not_accept_substring_trick`, and `test_writer_requires_database_url_and_explicit_disposable_insecure_mode`.
+- **G7-X09** [SECURITY PHYSICAL] - `test_disposable_writer_role_is_least_privilege`.
+- **G7-X10** [DISPOSABLE POSTGRES] - `test_v2_happy_path_supplier_match_and_replay`.
+- **G7-X11** [DISPOSABLE POSTGRES] - `test_income_worker_path_has_zero_writer_supplier_prompt_or_notification` and `test_income_ignored_releases_fifo_and_is_not_recovered`.
+- **G7-X12** [DISPOSABLE POSTGRES] - `test_v2_happy_path_supplier_match_and_replay` and `test_supplier_format_variants_share_one_canonical_replay`.
+- **G7-X13** [DISPOSABLE POSTGRES] - `test_unknown_supplier_is_nullable_and_snapshot_preserved`.
+- **G7-X14** [UNIT] - `test_duplicate_supplier_lookup_fails_closed_before_insert`.
+- **G7-X15** [DISPOSABLE POSTGRES] - `test_v2_happy_path_supplier_match_and_replay`.
+- **G7-X16** [DISPOSABLE POSTGRES] - `test_command_selection_upserts_and_clear_deletes_binding`.
+- **G7-X17** [DISPOSABLE POSTGRES, UNIT] - `test_command_selection_upserts_and_clear_deletes_binding` and `test_command_prompt_appends_clear_as_n_plus_one`.
+- **G7-X18** [DISPOSABLE POSTGRES, UNIT] - `test_enterprise_options_are_deterministic_and_store_real_ids`, `test_document_enterprise_prompt_uses_durable_mapping`, and `test_invalid_duplicate_and_late_command_answers`.
+- **G7-X19** [DISPOSABLE POSTGRES] - `test_current_binding_materializes_for_future_document` and `test_stale_binding_is_preserved_but_not_materialized`.
+- **G7-X20** [DISPOSABLE POSTGRES] - `test_missing_binding_creates_enterprise_selection_and_blocks_fifo`.
+- **G7-X21** [DISPOSABLE POSTGRES] - `test_document_enterprise_answer_materializes_item_only`.
+- **G7-X22** [DISPOSABLE POSTGRES] - `test_stale_binding_is_preserved_but_not_materialized`, `test_missing_binding_creates_enterprise_selection_and_blocks_fifo`, and `test_persistence_transition_fails_closed_on_missing_prerequisite`.
+- **G7-X23** [SECURITY PHYSICAL, DISPOSABLE POSTGRES] - `test_disposable_writer_role_is_least_privilege` and `test_v2_happy_path_supplier_match_and_replay`.
+- **G7-X24** [SECURITY PHYSICAL, DISPOSABLE POSTGRES] - `test_enterprise_api_is_minimal_and_read_only` and `test_disposable_writer_role_is_least_privilege`.
+- **G7-X25** [DISPOSABLE POSTGRES] - `test_10_cancel_command_and_unblocking_eligibility`, `test_11_expiration_sweeper_and_unblocking_eligibility`, and `test_terminal_item_cannot_reserve_prompt`.
+- **G7-X26** [SECURITY PHYSICAL] - `test_disposable_writer_role_is_least_privilege`.
+- **G7-X27** [DISPOSABLE POSTGRES] - `test_income_worker_path_has_zero_writer_supplier_prompt_or_notification`.
+- **G7-X28** [DISPOSABLE POSTGRES] - `test_income_ignored_releases_fifo_and_is_not_recovered`.
+- **G7-X29** [DISPOSABLE POSTGRES, MIGRATION] - `test_income_ignored_releases_fifo_and_is_not_recovered`, `test_ignored_constraint_rejects_wrong_reason`, `test_terminal_item_cannot_reserve_prompt`, and `test_gate7_migration_upgrade_and_previous_revision_round_trip`.
+- **G7-X30** [DISPOSABLE POSTGRES] - `test_income_worker_path_has_zero_writer_supplier_prompt_or_notification`; Gate 8 remains documentation-owned and NOT STARTED.
+- **G7-X31** [REAL WEBHOOK, DISPOSABLE POSTGRES] - `test_real_webhook_enterprise_command_during_amount_prompt_is_busy` and `test_open_document_interaction_makes_command_busy`.
+- **G7-X32** [DISPOSABLE POSTGRES] - `test_open_command_remains_owner_when_worker_requires_direction`.
+- **G7-X33** [DISPOSABLE POSTGRES] - `test_simultaneous_command_and_document_prompt_exactly_one_owner`.
+- **G7-X34** [DISPOSABLE POSTGRES] - `test_open_command_barrier_skips_conversation_without_mutating_ready_item` and `test_ready_claim_has_query_and_locked_command_barrier`.
+- **G7-X35** [DISPOSABLE POSTGRES] - `test_open_command_barrier_skips_conversation_without_mutating_ready_item`.
+- **G7-X36** [DISPOSABLE POSTGRES] - `test_clear_command_releases_ready_item_to_document_fallback`.
+- **G7-X37** [DISPOSABLE POSTGRES] - `test_reserved_command_expiry_releases_without_binding_change`.
+- **G7-X38** [REAL WEBHOOK, DISPOSABLE POSTGRES] - `test_real_webhook_duplicate_command_answer_has_one_business_effect`, `test_concurrent_same_event_command_answer_is_applied_once`, and `test_invalid_duplicate_and_late_command_answers`.
+- **G7-X39** [DISPOSABLE POSTGRES] - `test_outcome_unknown_answer_uses_stable_mapping_without_resend`.
+- **G7-X40** [REAL WEBHOOK] - `test_real_webhook_enterprise_command_during_amount_prompt_is_busy`.
+- **G7-X41** [REAL WEBHOOK, DISPOSABLE POSTGRES] - `test_router_sends_numeric_answer_only_to_open_command`, `test_real_webhook_cancelled_command_answer_is_late_without_reopen`, `test_router_records_late_answer_for_recent_expired_command`, `test_real_webhook_duplicate_command_answer_has_one_business_effect`, and `test_real_webhook_duplicate_user_answer_has_one_applied_mutation`.
+
+- [x] **G7-APPROVED = true**
+
+### Implementation Verification Evidence
+
+- Gate 7 Correction Pass 2 focused suite: **126 passed, 0 skipped, 0 failed, 0 errors**; the authoritative G7-X01 through G7-X41 map above records direct evidence and its evidence type.
+- Frozen Gate 4 regression: **210 passed, 0 skipped, 0 failed, 0 errors**.
+- Frozen Gate 5 regression: **63 passed, 0 skipped, 0 failed, 0 errors**.
+- Frozen Gate 6 regression: **64 passed, 0 skipped, 0 failed, 0 errors**.
+- Complete safe project suite: **565 passed, 0 skipped, 0 failed, 0 errors**.
+- Static verification: **compileall PASS; Ruff PASS; mypy PASS; git diff --check PASS**.
+- Test environment: **PostgreSQL 15 disposable only**; both migrations validated through physical upgrade/constraint/index/round-trip behavior.
+- Database safety: **no persistent/staging/production/Supabase/remote database touched; disposable databases, roles, and container removed afterward**.
+- Scope integrity: **`business_rules_evaluator.py` unchanged; WuzapiClient implementation unchanged; Gate 4 persistence semantics and Writer v1 behavior preserved; zero final notification and zero Gate 8 work**.
+- Migrations: **CREATED for Platform and local DF MVP; execution outside disposable tests remains NOT AUTHORIZED**.
+- Final governance: **Gate 7 APPROVED / COMPLETE**; implementation **COMPLETE**; verification **PASSED**; final review **APPROVED**; `G7-APPROVED = true`.
 
 ---
 
@@ -438,7 +604,7 @@ Status: **NOT STARTED**.
 
 ### Tests obrigatórios
 - [ ] **G8-X01** PIX → expense → grava → WhatsApp.
-- [ ] **G8-X02** PIX → income → grava → WhatsApp.
+- [ ] **G8-X02** PIX → income → `IGNORED / INCOME_OUT_OF_SCOPE` → zero gravação em `financial_records` → mensagem informativa expense-only idempotente → WhatsApp.
 - [ ] **G8-X03** Direction ambígua → pergunta → grava.
 - [ ] **G8-X04** Valor ausente → pergunta → grava.
 - [ ] **G8-X05** Data ausente → timestamp → grava.

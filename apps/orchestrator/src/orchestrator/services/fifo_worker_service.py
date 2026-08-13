@@ -9,7 +9,16 @@ from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 import sqlalchemy as sa
 
-from db.models import ProcessingItem, Execution, UserAnswer, UserInteraction
+from db.models import (
+    EnterpriseCommandSession,
+    ProcessingItem,
+    Execution,
+    UserAnswer,
+    UserInteraction,
+)
+from orchestrator.repositories.queue_repository import (
+    lock_or_create_conversation_counter,
+)
 from orchestrator.services.business_rules_evaluator import (
     BusinessRulesEvaluatorService,
     QUESTION_PRIORITY,
@@ -29,6 +38,8 @@ TERMINAL_STATES = (
     "EXPIRED",
     "CANCELLED",
 )
+
+FIFO_TERMINAL_STATES = TERMINAL_STATES + ("IGNORED",)
 
 BLOCKING_STATES = (
     "ACTIVE",
@@ -76,7 +87,7 @@ def is_conversation_blocked(
             ProcessingItem.instance_id == instance_id,
             ProcessingItem.user_id == user_id,
             ProcessingItem.sequence < target_sequence,
-            ProcessingItem.status.not_in(TERMINAL_STATES),
+            ProcessingItem.status.not_in(FIFO_TERMINAL_STATES),
         )
         .first()
     )
@@ -86,7 +97,9 @@ def is_conversation_blocked(
     return False
 
 
-def claim_next_ready_item(db: Session, worker_id: str = "worker-1") -> Optional[ProcessingItem]:
+def claim_next_ready_item(
+    db: Session, worker_id: str = "worker-1"
+) -> Optional[ProcessingItem]:
     """Atomically claims the globally oldest eligible READY item for business execution.
 
     SQL-Level Eligibility & Anti-Starvation:
@@ -102,22 +115,42 @@ def claim_next_ready_item(db: Session, worker_id: str = "worker-1") -> Optional[
 
     # Subquery 1: Check for any blocking item in same conversation
     BlockingItem = sa.orm.aliased(ProcessingItem)
-    blocking_subquery = sa.select(BlockingItem.id).where(
-        BlockingItem.organization_id == ProcessingItem.organization_id,
-        BlockingItem.instance_id == ProcessingItem.instance_id,
-        BlockingItem.user_id == ProcessingItem.user_id,
-        BlockingItem.status.in_(BLOCKING_STATES),
-    ).exists()
+    blocking_subquery = (
+        sa.select(BlockingItem.id)
+        .where(
+            BlockingItem.organization_id == ProcessingItem.organization_id,
+            BlockingItem.instance_id == ProcessingItem.instance_id,
+            BlockingItem.user_id == ProcessingItem.user_id,
+            BlockingItem.status.in_(BLOCKING_STATES),
+        )
+        .exists()
+    )
+
+    OpenCommand = sa.orm.aliased(EnterpriseCommandSession)
+    command_barrier = (
+        sa.select(OpenCommand.id)
+        .where(
+            OpenCommand.organization_id == ProcessingItem.organization_id,
+            OpenCommand.instance_id == ProcessingItem.instance_id,
+            OpenCommand.user_id == ProcessingItem.user_id,
+            OpenCommand.status.in_(["RESERVED", "WAITING", "OUTBOUND_OUTCOME_UNKNOWN"]),
+        )
+        .exists()
+    )
 
     # Subquery 2: Check for earlier non-terminal sequence items in same conversation
     EarlierItem = sa.orm.aliased(ProcessingItem)
-    earlier_subquery = sa.select(EarlierItem.id).where(
-        EarlierItem.organization_id == ProcessingItem.organization_id,
-        EarlierItem.instance_id == ProcessingItem.instance_id,
-        EarlierItem.user_id == ProcessingItem.user_id,
-        EarlierItem.sequence < ProcessingItem.sequence,
-        EarlierItem.status.not_in(TERMINAL_STATES),
-    ).exists()
+    earlier_subquery = (
+        sa.select(EarlierItem.id)
+        .where(
+            EarlierItem.organization_id == ProcessingItem.organization_id,
+            EarlierItem.instance_id == ProcessingItem.instance_id,
+            EarlierItem.user_id == ProcessingItem.user_id,
+            EarlierItem.sequence < ProcessingItem.sequence,
+            EarlierItem.status.not_in(FIFO_TERMINAL_STATES),
+        )
+        .exists()
+    )
 
     # Combined candidate query pushing all eligibility rules into SQL
     candidate = (
@@ -126,6 +159,7 @@ def claim_next_ready_item(db: Session, worker_id: str = "worker-1") -> Optional[
             ProcessingItem.status == "READY",
             ProcessingItem.sequence.isnot(None),
             ~blocking_subquery,
+            ~command_barrier,
             ~earlier_subquery,
         )
         .order_by(
@@ -140,6 +174,24 @@ def claim_next_ready_item(db: Session, worker_id: str = "worker-1") -> Optional[
     )
 
     if not candidate:
+        return None
+    assert candidate.sequence is not None
+
+    lock_or_create_conversation_counter(
+        db, candidate.organization_id, candidate.instance_id, candidate.user_id
+    )
+    if (
+        db.query(EnterpriseCommandSession.id)
+        .filter(
+            EnterpriseCommandSession.organization_id == candidate.organization_id,
+            EnterpriseCommandSession.instance_id == candidate.instance_id,
+            EnterpriseCommandSession.user_id == candidate.user_id,
+            EnterpriseCommandSession.status.in_(
+                ["RESERVED", "WAITING", "OUTBOUND_OUTCOME_UNKNOWN"]
+            ),
+        )
+        .first()
+    ):
         return None
 
     # Inline defensive revalidation
@@ -184,7 +236,9 @@ def claim_next_ready_item(db: Session, worker_id: str = "worker-1") -> Optional[
         orig = getattr(exc, "orig", None)
         pgcode = getattr(orig, "pgcode", None)
         diag = getattr(orig, "diag", None)
-        constraint_name = getattr(diag, "constraint_name", None) or getattr(orig, "constraint_name", None)
+        constraint_name = getattr(diag, "constraint_name", None) or getattr(
+            orig, "constraint_name", None
+        )
         msg = str(exc)
 
         is_sqlstate_23505 = pgcode == "23505" or "23505" in msg
@@ -202,7 +256,9 @@ def claim_next_ready_item(db: Session, worker_id: str = "worker-1") -> Optional[
         raise exc
 
 
-def transition_active_to_validating(db: Session, item_id: str, worker_id: str) -> Optional[ProcessingItem]:
+def transition_active_to_validating(
+    db: Session, item_id: str, worker_id: str
+) -> Optional[ProcessingItem]:
     """Atomically transitions an ACTIVE item to VALIDATING guarded by worker claim ownership.
 
     Idempotency:
@@ -236,7 +292,9 @@ def transition_active_to_validating(db: Session, item_id: str, worker_id: str) -
         .first()
     )
     if not item:
-        logger.warning(f"Failed ACTIVE -> VALIDATING transition for item {item_id} by worker {full_worker_id} (mismatched claim, invalid status, or expired lease)")
+        logger.warning(
+            f"Failed ACTIVE -> VALIDATING transition for item {item_id} by worker {full_worker_id} (mismatched claim, invalid status, or expired lease)"
+        )
         return None
 
     item.status = "VALIDATING"
@@ -278,10 +336,25 @@ class EffectiveFinancialDecision:
 
 
 _NORMALIZED_FIELD_MAP: dict[str, tuple[str, str, str, str]] = {
-    "pix_receipt": ("amount", "transaction_date", "sender_cpf_cnpj", "receiver_cpf_cnpj"),
+    "pix_receipt": (
+        "amount",
+        "transaction_date",
+        "sender_cpf_cnpj",
+        "receiver_cpf_cnpj",
+    ),
     "bank_receipt": ("amount", "payment_date", "payer_cpf_cnpj", "recipient_cpf_cnpj"),
-    "invoice": ("total_amount", "invoice_date", "customer_cpf_cnpj", "supplier_cpf_cnpj"),
-    "commercial_document": ("total_amount", "document_date", "customer_cpf_cnpj", "supplier_cpf_cnpj"),
+    "invoice": (
+        "total_amount",
+        "invoice_date",
+        "customer_cpf_cnpj",
+        "supplier_cpf_cnpj",
+    ),
+    "commercial_document": (
+        "total_amount",
+        "document_date",
+        "customer_cpf_cnpj",
+        "supplier_cpf_cnpj",
+    ),
 }
 
 
@@ -354,8 +427,13 @@ def _validated_human_overrides(
     direction_answer = answers.get("transaction_direction")
     if direction_answer is not None:
         parsed_direction = _answer_value(direction_answer)
-        if parsed_direction not in {"income", "expense"} or item.direction != parsed_direction:
-            raise Gate6DecisionConflict("APPLIED direction answer diverges from ProcessingItem.direction")
+        if (
+            parsed_direction not in {"income", "expense"}
+            or item.direction != parsed_direction
+        ):
+            raise Gate6DecisionConflict(
+                "APPLIED direction answer diverges from ProcessingItem.direction"
+            )
         direction = parsed_direction
 
     amount_answer = answers.get("transaction_amount")
@@ -363,7 +441,9 @@ def _validated_human_overrides(
         parsed_amount = _to_decimal(_answer_value(amount_answer))
         item_amount = _to_decimal(item.amount)
         if parsed_amount is None or item_amount is None or parsed_amount != item_amount:
-            raise Gate6DecisionConflict("APPLIED amount answer diverges from ProcessingItem.amount")
+            raise Gate6DecisionConflict(
+                "APPLIED amount answer diverges from ProcessingItem.amount"
+            )
         amount = item_amount
 
     return direction, amount
@@ -410,24 +490,38 @@ def evaluate_and_persist_validating_item(
         receiver_identifier=adapted["receiver_identifier"],
     )
 
-    existing_direction = item.direction if item.direction in {"income", "expense"} else None
-    effective_direction = confirmed_direction or existing_direction or raw_result.direction
+    existing_direction = (
+        item.direction if item.direction in {"income", "expense"} else None
+    )
+    effective_direction = (
+        confirmed_direction or existing_direction or raw_result.direction
+    )
     effective_amount = raw_result.amount
 
     unresolved: dict[str, str] = {}
     if effective_direction not in {"income", "expense"}:
         unresolved["transaction_direction"] = (
-            "AMBIGUOUS_DIRECTION" if effective_direction == "ambiguous" else "UNKNOWN_DIRECTION"
+            "AMBIGUOUS_DIRECTION"
+            if effective_direction == "ambiguous"
+            else "UNKNOWN_DIRECTION"
         )
-    if effective_amount is None or effective_amount <= 0:
+    # Gate 7 expense-only guard: once income is known, no destination-only
+    # facts (amount/enterprise) may be requested.
+    if effective_direction != "income" and (
+        effective_amount is None or effective_amount <= 0
+    ):
         unresolved["transaction_amount"] = (
             "MISSING_AMOUNT" if effective_amount is None else "INVALID_AMOUNT"
         )
 
-    question_type = next((name for name in QUESTION_PRIORITY if name in unresolved), None)
+    question_type = next(
+        (name for name in QUESTION_PRIORITY if name in unresolved), None
+    )
     clarification_reason = unresolved.get(question_type) if question_type else None
-    eligible = question_type is None and effective_direction in {"income", "expense"} and bool(
-        effective_amount is not None and effective_amount > 0
+    eligible = (
+        question_type is None
+        and effective_direction == "expense"
+        and bool(effective_amount is not None and effective_amount > 0)
     )
 
     decision = EffectiveFinancialDecision(
@@ -441,7 +535,7 @@ def evaluate_and_persist_validating_item(
         is_eligible_for_auto_write=eligible,
     )
 
-    item.amount = decision.amount
+    item.amount = decision.amount  # type: ignore[assignment]
     item.document_date = decision.document_date_str
     item.transaction_date = decision.transaction_date
     item.date_source = decision.date_source
@@ -449,6 +543,119 @@ def evaluate_and_persist_validating_item(
     db.commit()
     db.refresh(item)
     return item, decision
+
+
+def ignore_income_out_of_scope(
+    db: Session,
+    item_id: str,
+    worker_id: str,
+) -> Optional[ProcessingItem]:
+    """Atomically closes an owned VALIDATING income item as a non-error outcome."""
+    full_worker_id = _normalize_worker_id(worker_id)
+    existing = (
+        db.query(ProcessingItem)
+        .filter(
+            ProcessingItem.id == item_id,
+            ProcessingItem.status == "IGNORED",
+            ProcessingItem.outcome_reason == "INCOME_OUT_OF_SCOPE",
+        )
+        .first()
+    )
+    if existing is not None:
+        return existing
+
+    item = (
+        db.query(ProcessingItem)
+        .filter(
+            ProcessingItem.id == item_id,
+            ProcessingItem.status == "VALIDATING",
+            ProcessingItem.direction == "income",
+            ProcessingItem.claimed_by == full_worker_id,
+            ProcessingItem.lease_expires_at > sa.func.now(),
+        )
+        .with_for_update()
+        .first()
+    )
+    if item is None:
+        return None
+
+    now = datetime.now(timezone.utc)
+    item.status = "IGNORED"
+    item.outcome_reason = "INCOME_OUT_OF_SCOPE"
+    item.completed_at = now
+    item.claimed_by = None
+    item.heartbeat_at = None
+    item.lease_expires_at = None
+
+    checkpoint_key = f"{item.id}:INCOME_OUT_OF_SCOPE"
+    if (
+        not db.query(Execution.id)
+        .filter(Execution.operation_idempotency_key == checkpoint_key)
+        .first()
+    ):
+        db.add(
+            Execution(
+                processing_item_id=item.id,
+                event_id=item.event_id,
+                correlation_id=item.correlation_id,
+                component="BOT_DF",
+                operation="INCOME_OUT_OF_SCOPE",
+                operation_idempotency_key=checkpoint_key,
+                status="SUCCESS",
+                attempt=max(1, item.attempt_count),
+                started_at=now,
+                completed_at=now,
+            )
+        )
+    db.commit()
+    db.refresh(item)
+    return item
+
+
+def defer_validating_for_enterprise_command(
+    db: Session, item_id: str, worker_id: str
+) -> Optional[ProcessingItem]:
+    """Releases VALIDATING ownership when a command wins the prompt-open race."""
+    full_worker_id = _normalize_worker_id(worker_id)
+    item = (
+        db.query(ProcessingItem)
+        .filter(
+            ProcessingItem.id == item_id,
+            ProcessingItem.status == "VALIDATING",
+            ProcessingItem.claimed_by == full_worker_id,
+        )
+        .with_for_update()
+        .first()
+    )
+    if item is None:
+        return None
+    item.claimed_by = None
+    item.heartbeat_at = None
+    item.lease_expires_at = None
+    key = f"{item.id}:ENTERPRISE_COMMAND_BARRIER_DEFERRED"
+    if (
+        not db.query(Execution.id)
+        .filter(Execution.operation_idempotency_key == key)
+        .first()
+    ):
+        now = datetime.now(timezone.utc)
+        db.add(
+            Execution(
+                processing_item_id=item.id,
+                event_id=item.event_id,
+                correlation_id=item.correlation_id,
+                component="BOT_DF",
+                operation="ENTERPRISE_COMMAND_BARRIER_DEFERRED",
+                operation_idempotency_key=key,
+                status="SUCCESS",
+                attempt=max(1, item.attempt_count),
+                started_at=now,
+                completed_at=now,
+            )
+        )
+    db.commit()
+    db.refresh(item)
+    return item
 
 
 def claim_next_resumable_validating_item(
@@ -464,37 +671,79 @@ def claim_next_resumable_validating_item(
     AppliedAnswer = sa.orm.aliased(UserAnswer)
     ReservedInteraction = sa.orm.aliased(UserInteraction)
     DispatchExecution = sa.orm.aliased(Execution)
+    BarrierExecution = sa.orm.aliased(Execution)
     EarlierItem = sa.orm.aliased(ProcessingItem)
 
-    open_waiting = sa.select(OpenInteraction.id).where(
-        OpenInteraction.processing_item_id == ProcessingItem.id,
-        OpenInteraction.status.in_(["WAITING", "OUTBOUND_OUTCOME_UNKNOWN"]),
-    ).exists()
-    answered_applied = sa.select(AppliedAnswer.id).join(
-        AnsweredInteraction,
-        AnsweredInteraction.id == AppliedAnswer.interaction_id,
-    ).where(
-        AnsweredInteraction.processing_item_id == ProcessingItem.id,
-        AnsweredInteraction.status == "ANSWERED",
-        AppliedAnswer.status == "APPLIED",
-    ).exists()
-    matching_dispatch = sa.select(DispatchExecution.id).where(
-        DispatchExecution.processing_item_id == ProcessingItem.id,
-        DispatchExecution.operation == "USER_PROMPT_DISPATCHED",
-        DispatchExecution.outbound_message_id == ReservedInteraction.outbound_message_id,
-    ).exists()
-    recoverable_reserved = sa.select(ReservedInteraction.id).where(
-        ReservedInteraction.processing_item_id == ProcessingItem.id,
-        ReservedInteraction.status == "RESERVED",
-        ~matching_dispatch,
-    ).exists()
-    earlier_non_terminal = sa.select(EarlierItem.id).where(
-        EarlierItem.organization_id == ProcessingItem.organization_id,
-        EarlierItem.instance_id == ProcessingItem.instance_id,
-        EarlierItem.user_id == ProcessingItem.user_id,
-        EarlierItem.sequence < ProcessingItem.sequence,
-        EarlierItem.status.not_in(TERMINAL_STATES),
-    ).exists()
+    open_waiting = (
+        sa.select(OpenInteraction.id)
+        .where(
+            OpenInteraction.processing_item_id == ProcessingItem.id,
+            OpenInteraction.status.in_(["WAITING", "OUTBOUND_OUTCOME_UNKNOWN"]),
+        )
+        .exists()
+    )
+    answered_applied = (
+        sa.select(AppliedAnswer.id)
+        .join(
+            AnsweredInteraction,
+            AnsweredInteraction.id == AppliedAnswer.interaction_id,
+        )
+        .where(
+            AnsweredInteraction.processing_item_id == ProcessingItem.id,
+            AnsweredInteraction.status == "ANSWERED",
+            AppliedAnswer.status == "APPLIED",
+        )
+        .exists()
+    )
+    matching_dispatch = (
+        sa.select(DispatchExecution.id)
+        .where(
+            DispatchExecution.processing_item_id == ProcessingItem.id,
+            DispatchExecution.operation == "USER_PROMPT_DISPATCHED",
+            DispatchExecution.outbound_message_id
+            == ReservedInteraction.outbound_message_id,
+        )
+        .exists()
+    )
+    recoverable_reserved = (
+        sa.select(ReservedInteraction.id)
+        .where(
+            ReservedInteraction.processing_item_id == ProcessingItem.id,
+            ReservedInteraction.status == "RESERVED",
+            ~matching_dispatch,
+        )
+        .exists()
+    )
+    command_barrier_deferred = (
+        sa.select(BarrierExecution.id)
+        .where(
+            BarrierExecution.processing_item_id == ProcessingItem.id,
+            BarrierExecution.operation == "ENTERPRISE_COMMAND_BARRIER_DEFERRED",
+        )
+        .exists()
+    )
+    OpenCommand = sa.orm.aliased(EnterpriseCommandSession)
+    open_command = (
+        sa.select(OpenCommand.id)
+        .where(
+            OpenCommand.organization_id == ProcessingItem.organization_id,
+            OpenCommand.instance_id == ProcessingItem.instance_id,
+            OpenCommand.user_id == ProcessingItem.user_id,
+            OpenCommand.status.in_(["RESERVED", "WAITING", "OUTBOUND_OUTCOME_UNKNOWN"]),
+        )
+        .exists()
+    )
+    earlier_non_terminal = (
+        sa.select(EarlierItem.id)
+        .where(
+            EarlierItem.organization_id == ProcessingItem.organization_id,
+            EarlierItem.instance_id == ProcessingItem.instance_id,
+            EarlierItem.user_id == ProcessingItem.user_id,
+            EarlierItem.sequence < ProcessingItem.sequence,
+            EarlierItem.status.not_in(FIFO_TERMINAL_STATES),
+        )
+        .exists()
+    )
 
     candidate = (
         db.query(ProcessingItem)
@@ -504,7 +753,8 @@ def claim_next_resumable_validating_item(
             ProcessingItem.lease_expires_at.is_(None),
             ProcessingItem.heartbeat_at.is_(None),
             ~open_waiting,
-            sa.or_(answered_applied, recoverable_reserved),
+            sa.or_(answered_applied, recoverable_reserved, command_barrier_deferred),
+            ~open_command,
             ~earlier_non_terminal,
         )
         .order_by(

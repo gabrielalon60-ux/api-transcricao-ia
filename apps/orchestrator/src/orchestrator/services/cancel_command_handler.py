@@ -5,7 +5,15 @@ from datetime import datetime, timezone
 from typing import Optional
 from sqlalchemy.orm import Session
 
-from db.models import ProcessingItem, Execution, UserInteraction
+from db.models import (
+    EnterpriseCommandSession,
+    ProcessingItem,
+    Execution,
+    UserInteraction,
+)
+from orchestrator.repositories.queue_repository import (
+    lock_or_create_conversation_counter,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -17,7 +25,7 @@ def handle_cancel_command(
     user_id: str,
     event_id: str,
     correlation_id: str,
-) -> Optional[ProcessingItem]:
+) -> Optional[ProcessingItem | EnterpriseCommandSession]:
     """Handles explicit /cancelar command for a conversation with a WAITING_USER_INPUT item.
 
     Idempotency:
@@ -40,6 +48,26 @@ def handle_cancel_command(
     )
 
     if not item:
+        lock_or_create_conversation_counter(db, organization_id, instance_id, user_id)
+        command_session = (
+            db.query(EnterpriseCommandSession)
+            .filter(
+                EnterpriseCommandSession.organization_id == organization_id,
+                EnterpriseCommandSession.instance_id == instance_id,
+                EnterpriseCommandSession.user_id == user_id,
+                EnterpriseCommandSession.status.in_(
+                    ["RESERVED", "WAITING", "OUTBOUND_OUTCOME_UNKNOWN"]
+                ),
+            )
+            .with_for_update()
+            .first()
+        )
+        if command_session is not None:
+            command_session.status = "CANCELLED"
+            command_session.resolved_at = now
+            db.commit()
+            db.refresh(command_session)
+            return command_session
         # Check if latest item in conversation is already CANCELLED (idempotent return)
         already_cancelled = (
             db.query(ProcessingItem)
@@ -53,9 +81,13 @@ def handle_cancel_command(
             .first()
         )
         if already_cancelled:
-            logger.info(f"Repeated /cancelar command for conversation item {already_cancelled.id} (already CANCELLED). Returning existing item.")
+            logger.info(
+                f"Repeated /cancelar command for conversation item {already_cancelled.id} (already CANCELLED). Returning existing item."
+            )
             return already_cancelled
-        logger.info(f"No WAITING_USER_INPUT item found to cancel for conversation ({organization_id}, {instance_id}, {user_id}).")
+        logger.info(
+            f"No WAITING_USER_INPUT item found to cancel for conversation ({organization_id}, {instance_id}, {user_id})."
+        )
         return None
 
     # 2. Lock open interaction
@@ -63,7 +95,9 @@ def handle_cancel_command(
         db.query(UserInteraction)
         .filter(
             UserInteraction.processing_item_id == item.id,
-            UserInteraction.status.in_(["RESERVED", "WAITING", "OUTBOUND_OUTCOME_UNKNOWN"]),
+            UserInteraction.status.in_(
+                ["RESERVED", "WAITING", "OUTBOUND_OUTCOME_UNKNOWN"]
+            ),
         )
         .with_for_update()
         .first()

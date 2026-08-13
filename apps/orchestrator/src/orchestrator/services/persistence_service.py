@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import uuid
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 from typing import Optional, Tuple
 
 from sqlalchemy.exc import IntegrityError
@@ -21,6 +22,8 @@ def transition_validating_to_persisting(
     db: Session,
     item_id: str,
     worker_id: str = "worker-1",
+    *,
+    require_gate7_expense_destination: bool = False,
 ) -> Optional[ProcessingItem]:
     """Atomically transitions a ProcessingItem from VALIDATING -> PERSISTING.
 
@@ -33,19 +36,33 @@ def transition_validating_to_persisting(
       - Commits transaction BEFORE external Database Writer call.
     """
     now = datetime.now(timezone.utc)
-    item = (
-        db.query(ProcessingItem)
-        .filter(
-            ProcessingItem.id == item_id,
-            ProcessingItem.status == "VALIDATING",
+    filters = [
+        ProcessingItem.id == item_id,
+        ProcessingItem.status == "VALIDATING",
+    ]
+    if require_gate7_expense_destination:
+        filters.extend(
+            [
+                ProcessingItem.direction == "expense",
+                ProcessingItem.amount.isnot(None),
+                ProcessingItem.amount > 0,
+                ProcessingItem.transaction_date.isnot(None),
+                ProcessingItem.enterprise_id.isnot(None),
+            ]
         )
-        .with_for_update()
-        .first()
-    )
+    item = db.query(ProcessingItem).filter(*filters).with_for_update().first()
 
     if not item:
         logger.info(f"Item {item_id} not eligible for PERSISTING transition.")
         return None
+
+    if require_gate7_expense_destination:
+        try:
+            amount = Decimal(str(item.amount))
+        except (ValueError, TypeError, ArithmeticError):
+            return None
+        if not amount.is_finite() or amount <= 0:
+            return None
 
     writer_key = f"write_{item.id}"
     item.status = "PERSISTING"
@@ -79,7 +96,9 @@ def transition_validating_to_persisting(
         sp.commit()
     except IntegrityError as exc:
         sp.rollback()
-        logger.info(f"PERSISTENCE_DISPATCH_RESERVED already written for item {item.id} gen {gen}: {exc}")
+        logger.info(
+            f"PERSISTENCE_DISPATCH_RESERVED already written for item {item.id} gen {gen}: {exc}"
+        )
 
     db.commit()
     db.refresh(item)
@@ -112,9 +131,14 @@ def claim_persistence_dispatch(
         return None
 
     # Check if already claimed with an active lease
-    if item.persistence_claimed_by is not None and item.persistence_lease_expires_at is not None:
+    if (
+        item.persistence_claimed_by is not None
+        and item.persistence_lease_expires_at is not None
+    ):
         if item.persistence_lease_expires_at > now:
-            logger.info(f"Item {item_id} dispatch already claimed by {item.persistence_claimed_by}")
+            logger.info(
+                f"Item {item_id} dispatch already claimed by {item.persistence_claimed_by}"
+            )
             return None
 
     item.persistence_claimed_by = dispatch_token
@@ -160,8 +184,14 @@ def dispatch_persistence_write(
         return None
 
     # Guard claim token if provided
-    if dispatch_token and item.persistence_claimed_by and item.persistence_claimed_by != dispatch_token:
-        logger.info(f"Dispatch token mismatch for item {item_id}: expected {dispatch_token}, found {item.persistence_claimed_by}")
+    if (
+        dispatch_token
+        and item.persistence_claimed_by
+        and item.persistence_claimed_by != dispatch_token
+    ):
+        logger.info(
+            f"Dispatch token mismatch for item {item_id}: expected {dispatch_token}, found {item.persistence_claimed_by}"
+        )
         return None
 
     writer_key = item.writer_idempotency_key
@@ -207,6 +237,29 @@ def dispatch_persistence_write(
         "user_id": item.user_id,
         "schema_version": "1.0",
     }
+    schema_version = "1.0"
+    if item.enterprise_id:
+        normalized = item.normalized_data or {}
+        supplier_key = {
+            "pix_receipt": "receiver_cpf_cnpj",
+            "bank_receipt": "recipient_cpf_cnpj",
+            "invoice": "supplier_cpf_cnpj",
+            "commercial_document": "supplier_cpf_cnpj",
+        }.get(item.document_type or "")
+        supplier_snapshot = normalized.get(supplier_key) if supplier_key else None
+        schema_version = "2.0"
+        payload_data.update(
+            {
+                "schema_version": "2.0",
+                "transaction_date": (
+                    item.transaction_date.isoformat() if item.transaction_date else None
+                ),
+                "date_source": item.date_source,
+                "enterprise_id": item.enterprise_id,
+                "supplier_cnpj_snapshot": supplier_snapshot,
+                "origin": "WHATSAPP",
+            }
+        )
 
     res = client.write(
         idempotency_key=writer_key,
@@ -217,6 +270,7 @@ def dispatch_persistence_write(
         correlation_id=item.correlation_id,
         document_type=item.document_type or "unknown",
         payload=payload_data,
+        schema_version=schema_version,
     )
 
     outcome_status = res.get("status", "OUTCOME_UNKNOWN")
@@ -281,7 +335,9 @@ def dispatch_persistence_write(
         item_locked.status = "PERSISTENCE_FAILED"
         item_locked.external_operation_status = "REJECTED"
         item_locked.error_code = res.get("error_code", "INVALID_BUSINESS_PAYLOAD")
-        item_locked.error_message_sanitized = "Database Writer rejected business payload"
+        item_locked.error_message_sanitized = (
+            "Database Writer rejected business payload"
+        )
         item_locked.claimed_by = None
         item_locked.heartbeat_at = None
         item_locked.lease_expires_at = None
@@ -358,8 +414,13 @@ def dispatch_persistence_write(
         else:
             item_locked.status = "PERSIST_RETRYABLE"
             item_locked.external_operation_status = "RETRYABLE_FAILURE"
-            backoff = min(base_backoff * (2 ** (item_locked.persistence_attempt_count - 1)), max_backoff)
-            item_locked.persistence_next_attempt_at = now_post + timedelta(seconds=backoff)
+            backoff = min(
+                base_backoff * (2 ** (item_locked.persistence_attempt_count - 1)),
+                max_backoff,
+            )
+            item_locked.persistence_next_attempt_at = now_post + timedelta(
+                seconds=backoff
+            )
 
             sp_ret = db.begin_nested()
             try:
@@ -444,9 +505,12 @@ def recover_stale_persistence_items(
         .filter(
             ProcessingItem.status == "PERSISTING",
             (
-                (ProcessingItem.persistence_lease_expires_at.isnot(None)) & (ProcessingItem.persistence_lease_expires_at < now)
-            ) | (
-                (ProcessingItem.persistence_lease_expires_at.is_(None)) & (ProcessingItem.updated_at < stale_cutoff)
+                (ProcessingItem.persistence_lease_expires_at.isnot(None))
+                & (ProcessingItem.persistence_lease_expires_at < now)
+            )
+            | (
+                (ProcessingItem.persistence_lease_expires_at.is_(None))
+                & (ProcessingItem.updated_at < stale_cutoff)
             ),
         )
         .with_for_update(skip_locked=True)
@@ -463,7 +527,8 @@ def recover_stale_persistence_items(
             .filter(
                 Execution.processing_item_id == item.id,
                 Execution.operation == "PERSISTENCE_DISPATCHED",
-                Execution.operation_idempotency_key == f"{item.id}:PERSISTENCE_DISPATCHED:{writer_key}:{gen}",
+                Execution.operation_idempotency_key
+                == f"{item.id}:PERSISTENCE_DISPATCHED:{writer_key}:{gen}",
             )
             .first()
         )
@@ -513,7 +578,8 @@ def recover_stale_persistence_items(
         .filter(
             ProcessingItem.status == "PERSIST_RETRYABLE",
             (
-                (ProcessingItem.persistence_next_attempt_at.is_(None)) | (ProcessingItem.persistence_next_attempt_at <= now)
+                (ProcessingItem.persistence_next_attempt_at.is_(None))
+                | (ProcessingItem.persistence_next_attempt_at <= now)
             ),
         )
         .with_for_update(skip_locked=True)
@@ -556,7 +622,8 @@ def reconcile_persistence_outcomes(
         .filter(
             ProcessingItem.status == "PERSIST_OUTCOME_UNKNOWN",
             (
-                (ProcessingItem.persistence_claimed_by.is_(None)) | (ProcessingItem.persistence_lease_expires_at < now)
+                (ProcessingItem.persistence_claimed_by.is_(None))
+                | (ProcessingItem.persistence_lease_expires_at < now)
             ),
         )
         .with_for_update(skip_locked=True)
@@ -582,7 +649,9 @@ def reconcile_persistence_outcomes(
         rec_token = f"rec_{uuid.uuid4()}"
         candidate.persistence_claimed_by = rec_token
         candidate.persistence_claim_kind = "RECONCILIATION"
-        candidate.persistence_lease_expires_at = now + timedelta(seconds=LEASE_DURATION_SECONDS)
+        candidate.persistence_lease_expires_at = now + timedelta(
+            seconds=LEASE_DURATION_SECONDS
+        )
 
         # Step 3: Commit claim BEFORE network GET
         db.commit()
@@ -605,7 +674,9 @@ def reconcile_persistence_outcomes(
 
         # Step 7: Verify claim token
         if item_locked.persistence_claimed_by != rec_token:
-            logger.warning(f"Reconciliation token mismatch for item {item_id}: expected {rec_token}")
+            logger.warning(
+                f"Reconciliation token mismatch for item {item_id}: expected {rec_token}"
+            )
             continue
 
         now_final = datetime.now(timezone.utc)

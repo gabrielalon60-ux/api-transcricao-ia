@@ -16,7 +16,7 @@ from orchestrator.services.ingestion_service import ingest_event_transaction
 from orchestrator.services.fifo_worker_service import claim_next_ready_item, transition_active_to_validating
 from orchestrator.services.user_interaction_service import (
     select_question_type,
-    dispatch_user_prompt,
+    dispatch_user_prompt as _dispatch_user_prompt,
     apply_user_answer,
 )
 from orchestrator.services.persistence_service import (
@@ -27,6 +27,11 @@ from orchestrator.services.persistence_service import (
     recover_stale_persistence_items,
 )
 from tests.test_platform_gate4f_orchestrator_persistence_postgres import MockWriterClient
+
+
+def dispatch_user_prompt(*args, **kwargs):
+    kwargs.setdefault("worker_id", "w-e2e")
+    return _dispatch_user_prompt(*args, **kwargs)
 
 ROOT = Path(__file__).resolve().parents[1]
 ALEMBIC_INI = ROOT / "packages" / "db" / "alembic.ini"

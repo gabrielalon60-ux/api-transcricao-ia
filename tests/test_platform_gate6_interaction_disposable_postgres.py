@@ -176,7 +176,13 @@ def test_g6_x01_third_of_five_waits_and_fourth_fifth_cannot_overtake(disposable_
     third_id = _item(disposable_postgres, context, sequence=3)
     decision = _evaluate(disposable_postgres, third_id)
     with Session(disposable_postgres) as db:
-        dispatch_user_prompt(db, third_id, decision.question_type or "", lambda *_: True)
+        dispatch_user_prompt(
+            db,
+            third_id,
+            decision.question_type or "",
+            lambda *_: True,
+            worker_id="worker-g6",
+        )
     fourth_id = _item(disposable_postgres, context, sequence=4, status="READY", claimed_by=None)
     fifth_id = _item(disposable_postgres, context, sequence=5, status="READY", claimed_by=None)
     with Session(disposable_postgres) as db:
@@ -197,7 +203,13 @@ def test_g6_x02_x03_numeric_direction_resolves_active_item(
     item_id = _item(disposable_postgres, context, amount="10.00")
     decision = _evaluate(disposable_postgres, item_id)
     with Session(disposable_postgres) as db:
-        dispatch_user_prompt(db, item_id, decision.question_type or "", lambda *_: True)
+        dispatch_user_prompt(
+            db,
+            item_id,
+            decision.question_type or "",
+            lambda *_: True,
+            worker_id="worker-g6",
+        )
     with Session(disposable_postgres) as db:
         answer = apply_user_answer(db, _answer_event(disposable_postgres, context), raw_answer)
         item = db.get(ProcessingItem, item_id)
@@ -214,7 +226,13 @@ def test_g6_x01_x02_x03_x04_direction_then_amount_end_to_end(disposable_postgres
     assert first.is_eligible_for_auto_write is False
 
     with Session(disposable_postgres) as db:
-        interaction1 = dispatch_user_prompt(db, item_id, first.question_type, lambda *_: True)
+        interaction1 = dispatch_user_prompt(
+            db,
+            item_id,
+            first.question_type,
+            lambda *_: True,
+            worker_id="worker-g6",
+        )
         assert interaction1.generation == 1
     with Session(disposable_postgres) as db:
         answer1 = apply_user_answer(db, _answer_event(disposable_postgres, context), "2")
@@ -228,7 +246,13 @@ def test_g6_x01_x02_x03_x04_direction_then_amount_end_to_end(disposable_postgres
     assert second.question_type == "transaction_amount"
 
     with Session(disposable_postgres) as db:
-        interaction2 = dispatch_user_prompt(db, item_id, second.question_type, lambda *_: True)
+        interaction2 = dispatch_user_prompt(
+            db,
+            item_id,
+            second.question_type,
+            lambda *_: True,
+            worker_id="worker-g6",
+        )
         assert interaction2.generation == 2
     with Session(disposable_postgres) as db:
         answer2 = apply_user_answer(db, _answer_event(disposable_postgres, context), "R$ 1.200,50")
@@ -256,7 +280,13 @@ def test_g6_x05_invalid_answer_keeps_generation_and_ttl(disposable_postgres) -> 
     item_id = _item(disposable_postgres, context)
     decision = _evaluate(disposable_postgres, item_id)
     with Session(disposable_postgres) as db:
-        interaction = dispatch_user_prompt(db, item_id, decision.question_type or "", lambda *_: True)
+        interaction = dispatch_user_prompt(
+            db,
+            item_id,
+            decision.question_type or "",
+            lambda *_: True,
+            worker_id="worker-g6",
+        )
         original_expiry = interaction.expires_at
         interaction_id = interaction.id
     with Session(disposable_postgres) as db:
@@ -274,7 +304,13 @@ def test_g6_x06_x08_waiting_blocks_same_conversation_but_not_other(disposable_po
     first_id = _item(disposable_postgres, context1)
     decision = _evaluate(disposable_postgres, first_id)
     with Session(disposable_postgres) as db:
-        dispatch_user_prompt(db, first_id, decision.question_type or "", lambda *_: True)
+        dispatch_user_prompt(
+            db,
+            first_id,
+            decision.question_type or "",
+            lambda *_: True,
+            worker_id="worker-g6",
+        )
     later_id = _item(disposable_postgres, context1, sequence=2, status="READY", claimed_by=None)
     context2 = _context(disposable_postgres, "9")
     other_id = _item(disposable_postgres, context2, status="READY", claimed_by=None)
@@ -289,7 +325,13 @@ def test_g6_x07_x08_x09_expiry_releases_next_and_requires_resend(disposable_post
     first_id = _item(disposable_postgres, context)
     decision = _evaluate(disposable_postgres, first_id)
     with Session(disposable_postgres) as db:
-        interaction = dispatch_user_prompt(db, first_id, decision.question_type or "", lambda *_: True)
+        interaction = dispatch_user_prompt(
+            db,
+            first_id,
+            decision.question_type or "",
+            lambda *_: True,
+            worker_id="worker-g6",
+        )
         interaction.waiting_since = datetime.now(timezone.utc) - timedelta(seconds=3601)
         interaction.expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
         item = db.get(ProcessingItem, first_id)
@@ -314,7 +356,13 @@ def test_g6_x10_resume_claim_race_has_one_winner(disposable_postgres) -> None:
     item_id = _item(disposable_postgres, context)
     decision = _evaluate(disposable_postgres, item_id)
     with Session(disposable_postgres) as db:
-        dispatch_user_prompt(db, item_id, decision.question_type or "", lambda *_: True)
+        dispatch_user_prompt(
+            db,
+            item_id,
+            decision.question_type or "",
+            lambda *_: True,
+            worker_id="worker-g6",
+        )
     with Session(disposable_postgres) as db:
         apply_user_answer(db, _answer_event(disposable_postgres, context), "2")
 
@@ -341,7 +389,13 @@ def test_stale_resume_ignores_historical_ack_and_is_reclaimable(disposable_postg
     item_id = _item(disposable_postgres, context)
     decision = _evaluate(disposable_postgres, item_id)
     with Session(disposable_postgres) as db:
-        dispatch_user_prompt(db, item_id, decision.question_type or "", lambda *_: True)
+        dispatch_user_prompt(
+            db,
+            item_id,
+            decision.question_type or "",
+            lambda *_: True,
+            worker_id="worker-g6",
+        )
     with Session(disposable_postgres) as db:
         apply_user_answer(db, _answer_event(disposable_postgres, context), "2")
     with Session(disposable_postgres) as db:
@@ -364,7 +418,13 @@ def test_outbound_unknown_is_answerable_without_resend(disposable_postgres) -> N
     decision = _evaluate(disposable_postgres, item_id)
     sends: list[str] = []
     with Session(disposable_postgres) as db:
-        interaction = dispatch_user_prompt(db, item_id, decision.question_type or "", lambda *_: sends.append("send") or False)
+        interaction = dispatch_user_prompt(
+            db,
+            item_id,
+            decision.question_type or "",
+            lambda *_: sends.append("send") or False,
+            worker_id="worker-g6",
+        )
         assert interaction.status == "OUTBOUND_OUTCOME_UNKNOWN"
     with Session(disposable_postgres) as db:
         answer = apply_user_answer(db, _answer_event(disposable_postgres, context), "2")
@@ -379,7 +439,13 @@ def test_answer_replay_is_idempotent(disposable_postgres) -> None:
     item_id = _item(disposable_postgres, context)
     decision = _evaluate(disposable_postgres, item_id)
     with Session(disposable_postgres) as db:
-        dispatch_user_prompt(db, item_id, decision.question_type or "", lambda *_: True)
+        dispatch_user_prompt(
+            db,
+            item_id,
+            decision.question_type or "",
+            lambda *_: True,
+            worker_id="worker-g6",
+        )
     event_id = _answer_event(disposable_postgres, context)
     with Session(disposable_postgres) as db:
         first = apply_user_answer(db, event_id, "2")
@@ -415,7 +481,13 @@ def test_materialized_answer_divergence_fails_closed(disposable_postgres) -> Non
     item_id = _item(disposable_postgres, context)
     decision = _evaluate(disposable_postgres, item_id)
     with Session(disposable_postgres) as db:
-        dispatch_user_prompt(db, item_id, decision.question_type or "", lambda *_: True)
+        dispatch_user_prompt(
+            db,
+            item_id,
+            decision.question_type or "",
+            lambda *_: True,
+            worker_id="worker-g6",
+        )
     with Session(disposable_postgres) as db:
         apply_user_answer(db, _answer_event(disposable_postgres, context), "2")
         item = db.get(ProcessingItem, item_id)
@@ -437,7 +509,13 @@ def test_cancellation_closes_waiting_item_without_resume(disposable_postgres) ->
     item_id = _item(disposable_postgres, context)
     decision = _evaluate(disposable_postgres, item_id)
     with Session(disposable_postgres) as db:
-        dispatch_user_prompt(db, item_id, decision.question_type or "", lambda *_: True)
+        dispatch_user_prompt(
+            db,
+            item_id,
+            decision.question_type or "",
+            lambda *_: True,
+            worker_id="worker-g6",
+        )
     cancel_event = _answer_event(disposable_postgres, context)
     with Session(disposable_postgres) as db:
         result = handle_cancel_command(
