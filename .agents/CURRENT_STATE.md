@@ -3,10 +3,10 @@
 > Convenience summary only. `TASKS_TESTS_GATES.md` is the operational source of truth.
 
 ## Current Gate
-**Gate 8 — E2E final outcomes (APPROVED / COMPLETE)**
+**Gate 9 — Operations and observability (APPROVED / COMPLETE)**
 
 ## Last User-Approved Gate
-**Gate 8 — E2E final outcomes (Approved on 2026-08-14, America/Sao_Paulo)**
+**Gate 9 — Operations and observability (Approved on 2026-08-15, America/Sao_Paulo)**
 
 The standalone Transcription IA 1.0 was validated before this platform initiative, but the new architecture begins at Gate 0.
 
@@ -67,6 +67,39 @@ The standalone Transcription IA 1.0 was validated before this platform initiativ
 - Gate 8 final approval review: PASSED / APPROVED on 2026-08-14.
 - Gate 8 overall: APPROVED / COMPLETE.
 - G8-APPROVED: true.
+- Gate 8 repository status: APPROVED / COMPLETE / PUSHED at `139f8b441ca1af45a64889221172bce40653e832`.
+- Gate 9 planning: PREPARED.
+- Gate 9 contract: CLOSED.
+- Gate 9 implementation plan: APPROVED.
+- G9-D01 token authority: CLOSED.
+- G9-D02 service-usage ownership: CLOSED.
+- G9-D03 business terminal timestamp: CLOSED.
+- Gate 9 implementation: COMPLETE.
+- Gate 9 test verification: PASSED; focused suite 62 passed, frozen Gate 4/5/6/7/8 regressions 210/63/64/126/46 passed, complete safe host suite 671 passed plus 2 separately executed physical backup/restore tests, for 673 combined passed; every recorded passing suite had 0 skipped, 0 failed, and 0 errors.
+- Gate 9 physical evidence: actual PostgreSQL 15 reporting, Writer rejection correlation, custom-format `pg_dump`, `pg_restore --list`, generated clean restore, schema/data/count/index/constraint/revision validation, and exact invocation-owned cleanup all passed.
+- Gate 9 static evidence: compileall PASS; Ruff PASS; Gate 9-targeted mypy PASS; git diff --check PASS; credential/DSN leakage audit PASS; repository-scope inspection PASS; separate authorized-untracked-file trailing-whitespace inspection PASS.
+- Gate 9 database safety: uniquely named tmpfs-backed disposable PostgreSQL 15 containers only; no persistent, staging, production, client, Supabase, remote, or VPS database touched; databases, containers, temporary runner images/Dockerfiles, and local backup/restore artifacts cleaned afterward.
+- Gate 9 scope integrity: authorized source/runbook/test/governance changes only. No shared helper, Gate 4–8 behavior/test change, migration, model/index, dependency/lockfile, Docker/runtime configuration, Gate 10 work, Production Phase B work, or real external-service traffic.
+- Gate 9 repository cleanup: COMPLETE. A true elevated Windows Administrator session validated the exact `gate9-pytest-tmp/` target, transferred ownership to the Administrators group, granted removal access, removed the pytest-created symlinks and exact temporary tree, and independent post-cleanup verification confirmed `Test-Path=false` and no Git-status residue.
+- Gate 9 first final application review: FAILED with four P1 blockers in bounded token aggregation, correlation continuation, restore post-CREATE failure ownership evidence, and restore artifact ownership metadata validation.
+- Gate 9 final-review correction code: COMPLETE. Document totals use SQL aggregation; organization totals use constant-memory accumulation; correlation provides collection-specific continuation; restore preserves post-CREATE failure evidence; restore requires exact marker/manifest schema and directory identity.
+- Gate 9 correction verification: unit suite **64 passed**; affected disposable PostgreSQL 15 reporting integrations **4 passed**; compileall PASS with external bytecode cache; Ruff PASS; targeted mypy PASS for the four reporting source/test files changed in the final edge-case pass.
+- Gate 9 fresh physical re-verification: PASSED — **2 passed, 0 skipped, 0 failed, 0 errors**. A client-equipped PostgreSQL 15 runner shared the disposable server's network namespace, making resolver and connected-server identity true loopback. The corrected code completed real custom-format backup, catalog/hash validation, clean generated restore, representative identity comparison, exact target cleanup, and missing-authorization rejection. The tmpfs-backed database, runner, image, artifacts, target, and temporary runner definition were removed afterward.
+- Gate 9 repeated final application review: PASSED / APPROVED. The review closed two residual forms of the original blockers: organization reporting now has bounded cross-batch aggregation/detail memory, and correlation child/Writer collections are no longer restricted to the first ProcessingItem page.
+- Gate 9 overall: APPROVED / COMPLETE on 2026-08-15 by explicit user decision.
+- G9-APPROVED: true.
+- Gate 9 Git closure: COMPLETE / PUSHED TO `origin/main`.
+- Gate 9 discovery found that Transcription `usage_logs` is the populated, nullable, per-provider-attempt source of truth, while Platform `service_usage` has no runtime producer and its non-null token defaults cannot represent unknown usage without inventing zero.
+- Gate 9 service-usage ownership: report from component-owned durable sources; do not populate or project Transcription usage into Platform `service_usage`; do not create a sync job or synthetic Writer/WUZAPI usage.
+- Gate 9 migration decision: NO GATE 9 MIGRATION REQUIRED.
+- Gate 9 token contract: all real provider attempts count; unknown usage remains NULL; known sums with any unknown attempt are explicitly PARTIAL.
+- Gate 9 duration contract: wall-clock business duration from `Event.received_at` to an unequivocal durable terminal timestamp, including clarification wait and excluding Gate 8 final-notification duration; `updated_at` is never a fallback and missing terminal time yields `duration_available=false`.
+- Gate 9 operational surface contract: bounded read-only CLI and documented queries; no web dashboard or external monitoring stack required.
+- Gate 9 backup boundary: Platform PostgreSQL only, custom-format PostgreSQL 15 backup and clean disposable restore; Writer/client, Transcription, Supabase, staging, production, and remote databases excluded.
+- Gate 9 verification boundary: disposable PostgreSQL 15 only; no VPS or real external service traffic.
+- Gate 9 implementation-plan safety correction: INCORPORATED. Reporting uses explicit PostgreSQL read-only transactions with finite timeouts, a 24-hour default/31-day maximum UTC window, and a 100-default/1,000-maximum row limit with deterministic truncation/cursors.
+- Gate 9 backup/restore safety correction: INCORPORATED. Dedicated fail-closed environment variables, resolver-plus-connected-server loopback validation, exact PostgreSQL 15 client/server checks, marker-based artifact containment, script-generated restore targets, invocation ownership, and cleanup revalidation are frozen in the prepared plan.
+- Gate 9 closure status: APPROVED / COMPLETE. Correction code, host/disposable-reporting/physical verification, repeated final application review, repository closure, and explicit user approval are complete. G9-D01–D03 remain CLOSED, `G9-APPROVED = true`, and no product decision was reopened or shared helper/P1/index scope added.
 - Gate 8 terminal notification mapping: `COMPLETED -> EXPENSE_COMMITTED`, `IGNORED / INCOME_OUT_OF_SCOPE -> INCOME_OUT_OF_SCOPE`, `EXTRACTION_FAILED -> EXTRACTION_FAILED`, and terminal `PERSISTENCE_FAILED -> PERSISTENCE_FAILED`; all nonterminal/ambiguous business states are ineligible.
 - Gate 8 outbound contract: one durable logical intent and at most one locally authorized WUZAPI attempt; `RESERVED -> DISPATCHED -> ACKNOWLEDGED | OUTBOUND_OUTCOME_UNKNOWN`; no blind resend after `DISPATCHED`.
 - Gate 8 storage decision: reuse the existing `executions` ledger and its unique operation/outbound identities; NO GATE 8 MIGRATION REQUIRED.
@@ -94,7 +127,7 @@ The standalone Transcription IA 1.0 was validated before this platform initiativ
 - Production migration execution: NOT AUTHORIZED.
 - Remote database execution: NOT AUTHORIZED.
 - Gate 7 Correction Pass 2 closure: VALIDATING prompt creation requires matching worker ownership and a live lease while WAITING replay remains idempotent; Writer v2 semantic validation and canonicalization precede hashing/ledger/DML; generic commit-time DBAPI uncertainty maps to OUTCOME_UNKNOWN; post-race lookup is deadline-guarded; real-webhook duplicate, CANCELLED-late-answer, and `/empreendimento`-during-amount paths are directly proven; stale-binding fallback and cross-conversation FIFO/barrier invariants are directly proven. G7-X01 through G7-X41 have an authoritative exact test/evidence-type map.
-- Next Step: push the approved Gate 8 commit only after separate explicit authorization. Gate 9 and Gate 10 remain NOT STARTED; Production Phase B remains NOT IMPLEMENTED.
+- Next Step: prepare the Gate 10 planning/discovery pass only after explicit user authorization. Gate 10 remains NOT STARTED and Production Phase B remains NOT IMPLEMENTED.
 - Gate 4: COMPLETE.
 - Gate 3 — Transcription was explicitly approved by the user on 2026-08-04 at 00:20:08 -03:00 (America/Sao_Paulo), based on the formal application review result `REVIEW PASSED WITH FOLLOW-UPS`.
 - Gate 3 application implementation: APPROVED.
@@ -182,7 +215,9 @@ No blocker prevents Gate 3 closure; Gate 3 is complete.
 
 Gate 7 has no unresolved local architecture decision and no local implementation blocker. The authorized local Phase A implementation is APPROVED / COMPLETE / PUSHED. The production adapter remains blocked on the client's real enterprise schema and final deployment/adoption inputs.
 
+Gate 9 has no unresolved product, implementation, verification, cleanup, final-review, approval, or repository-scope blocker. Gate 9 is APPROVED / COMPLETE.
+
 Production release remains blocked until real CPF/CNPJ configuration and Security Gate requirements are complete.
 
 ## Recommended Next Action
-Gate 8 is APPROVED / COMPLETE and `G8-APPROVED = true`. Push only after separate explicit authorization. Do not start Gates 9–10, execute migrations/databases, or begin production Phase B without separate authorization.
+Prepare the Gate 10 planning/discovery pass only after explicit user authorization. Gate 9 is APPROVED / COMPLETE / PUSHED and `G9-APPROVED = true`. Do not implement Gate 10, create/execute persistent migrations, deploy, or begin Production Phase B without separate authorization.

@@ -672,7 +672,7 @@ File aliases in this matrix: E2E file = `tests/test_platform_gate8_e2e_disposabl
 - Correction Pass 2 restart evidence: `test_shutdown_after_dispatched_recovers_unknown_without_resend` starts the production notifier loop for the original durable dispatch, simulates process loss before finalization, then starts fresh notifier runtimes with fresh sessions at the injected 59- and 60-second clocks. The 59-second runtime produces no finalization/resend; the 60-second runtime produces exactly one UNKNOWN on the shared final key, no ACK, no resend, one total outbound attempt, and no business-state mutation. No recovery helper is invoked directly as the post-restart acceptance step.
 - Scope: new final-notification service, `fifo_worker.py` scheduling integration, and exactly four Gate 8 test files; no frozen Gate 4–7 test file modified.
 - Safety: **zero Gate 8 migrations**; no persistent/staging/production/Supabase/remote DB, external WUZAPI, Gemini, cellphone, or client database touched.
-- Governance: Gate 8 **APPROVED / COMPLETE**; implementation **COMPLETE**; verification **PASSED**; Correction Pass 1 and Correction Pass 2 **COMPLETE**; final approval review **PASSED / APPROVED**; `G8-APPROVED = true`; Gate 9 and Gate 10 **NOT STARTED**; Production Phase B **NOT IMPLEMENTED**.
+- Governance: Gate 8 **APPROVED / COMPLETE / PUSHED**; implementation **COMPLETE**; verification **PASSED**; Correction Pass 1 and Correction Pass 2 **COMPLETE**; final approval review **PASSED / APPROVED**; `G8-APPROVED = true`; Gate 9 contract is **CLOSED**, implementation, verification, repository closure, final review, and explicit user approval are **COMPLETE / APPROVED**, and `G9-APPROVED = true`; Gate 10 is **NOT STARTED**; Production Phase B is **NOT IMPLEMENTED**.
 
 - [x] **G8-APPROVED = true**
 
@@ -680,27 +680,52 @@ File aliases in this matrix: E2E file = `tests/test_platform_gate8_e2e_disposabl
 
 ## GATE 9 — Operação
 
+Status: **APPROVED / COMPLETE / PUSHED**. Gate 8 is APPROVED / COMPLETE / PUSHED. Gate 9 correction code, host/disposable-reporting/physical verification, cleanup, repository-scope closure, repeated final application review, explicit user approval, and Git closure are complete. `G9-APPROVED = true`.
+
+Read-only discovery findings:
+
+- existing `executions` is sufficient for P0 checkpoint/correlation queries; no new Execution column or synthetic event is proposed;
+- Transcription `usage_logs` is the populated attempt-level token/cost source of truth, including retries and nullable unknown usage;
+- Platform `service_usage` has no runtime producer/consumer and cannot represent unknown usage because tokens are non-null with zero defaults;
+- G9-D01 **CLOSED**: Transcription `usage_logs` is authoritative; successful, failed, and retried provider attempts count; unknown usage remains NULL and makes totals PARTIAL;
+- G9-D02 **CLOSED**: G9-T02 reports from authoritative component-owned sources; Gate 9 does not populate Platform `service_usage`, create a projection/sync job, or add synthetic Writer/WUZAPI usage rows;
+- migration decision: **NO GATE 9 MIGRATION REQUIRED**;
+- token aggregation is per ProcessingItem/Transcription request, includes failed/retried attempts, separates input/output/provider total, and exposes unknown attempt counts without zero substitution;
+- G9-D03 **CLOSED**: E2E business duration uses only unequivocal durable terminal timestamps; it includes human wait, excludes final-notification delivery, never falls back to `ProcessingItem.updated_at`, and reports `duration_available=false` when no authoritative terminal timestamp exists;
+- P0 operations use bounded read-only CLI/queries, not a web dashboard or external monitoring vendor;
+- backup/restore scope is Platform PostgreSQL 15 only and disposable during Gate 9 verification;
+- Gate 9 P0 records local Docker `json-file` retention guidance (`10m`, 5 files) but leaves `docker-compose.yml` unchanged; VPS enforcement belongs to Gate 10;
+- implementation-plan safety corrections are incorporated: PostgreSQL-enforced read-only reporting, 24-hour default/31-day maximum UTC windows, 100-default/1,000-maximum detailed rows, deterministic truncation, dedicated no-fallback configuration, strict loopback/PostgreSQL 15 checks, tool-owned backup containment, and invocation-owned restore/cleanup;
+- the exact source/documentation/test inventory was preserved; no shared helper, speculative index, migration, model, dependency, Docker/runtime configuration, Gate 10, or P1 work was added;
+- Gate 9 requires no VPS, real external service, client DB, production Phase B, or Gate 10 work;
+- authoritative discovery/decision record: `.agents/IMPLEMENTATION_PLAN_GATE_9.md`;
+- unresolved product decisions: NONE; identified safety ambiguities and first-final-review code blockers: CORRECTED AND FRESHLY VERIFIED; repeated final application review: PASSED / APPROVED; explicit user approval: GRANTED on 2026-08-15.
+
 ### Tasks
-- [ ] **G9-T01 P0** executions.
-- [ ] **G9-T02 P0** service_usage.
-- [ ] **G9-T03 P0** Tokens.
-- [ ] **G9-T04 P0** Duração.
-- [ ] **G9-T05 P0** Error codes.
-- [ ] **G9-T06 P0** Queries/dashboard operacional.
-- [ ] **G9-T07 P0** Backup Platform DB.
-- [ ] **G9-T08 P0** Restore runbook/script.
-- [ ] **G9-T09 P0** Retenção de logs.
-- [ ] **G9-T10 P0** Runbook de incidentes.
+- [x] **G9-T01 P0** executions.
+- [x] **G9-T02 P0** service_usage.
+- [x] **G9-T03 P0** Tokens.
+- [x] **G9-T04 P0** Duração.
+- [x] **G9-T05 P0** Error codes.
+- [x] **G9-T06 P0** Queries/dashboard operacional.
+- [x] **G9-T07 P0** Backup Platform DB.
+- [x] **G9-T08 P0** Restore runbook/script.
+- [x] **G9-T09 P0** Retenção de logs.
+- [x] **G9-T10 P0** Runbook de incidentes.
 
 ### Tests
-- [ ] **G9-X01** Tokens por documento.
-- [ ] **G9-X02** Tokens por organização.
-- [ ] **G9-X03** Duração E2E.
-- [ ] **G9-X04** Falha localizável por correlation ID.
-- [ ] **G9-X05** Backup gera artefato válido.
-- [ ] **G9-X06** Restore em ambiente limpo.
+- [x] **G9-X01** Tokens por documento.
+- [x] **G9-X02** Tokens por organização.
+- [x] **G9-X03** Duração E2E.
+- [x] **G9-X04** Falha localizável por correlation ID.
+- [x] **G9-X05** Backup gera artefato válido.
+- [x] **G9-X06** Restore em ambiente limpo.
 
-- [ ] **G9-APPROVED**
+- [x] **G9-APPROVED = true**
+
+Implementation and verification evidence (2026-08-15): Gate 9 focused **62 passed**; frozen Gate 4/5/6/7/8 regressions **210/63/64/126/46 passed**; complete safe host suite **671 passed** plus the two separately executed physical backup/restore tests, for **673 combined passed**. All recorded passing suites had 0 skipped, 0 failed, and 0 errors. compileall, Ruff, Gate 9-targeted mypy, `git diff --check`, credential/DSN leakage inspection, repository-scope inspection, and separate authorized-untracked-file trailing-whitespace inspection passed. Physical evidence used only invocation-owned tmpfs PostgreSQL 15 resources; database/container/image/artifact cleanup completed and no persistent/staging/production/client/Supabase/remote/VPS database or real external service was touched. The final pytest-created `gate9-pytest-tmp/` residue was removed by a true elevated Windows Administrator session after exact-path validation, ownership/access correction, and symlink removal; independent post-cleanup verification confirmed `Test-Path=false` and no Git-status residue. No Gate 9 migration, dependency, lockfile, Docker/runtime change, Gate 10 work, or Production Phase B implementation occurred.
+
+Final-review correction evidence (2026-08-15): the four P1 code blockers are corrected in the existing authorized files. The correction unit suite passed **64 tests**, the affected disposable PostgreSQL 15 reporting integrations passed **4 tests**, and fresh physical G9-X05/X06 re-verification passed **2 tests**, all with 0 skipped, 0 failed, and 0 errors. compileall, Ruff, and targeted mypy passed. The physical runner shared the disposable PostgreSQL 15 server's network namespace, satisfying resolver and connected-server loopback checks while exercising real custom-format backup, catalog/hash validation, clean generated restore, row-identity comparison, exact target cleanup, and missing-authorization rejection. The repeated final review additionally verified bounded cross-batch organization aggregation/detail memory and complete correlation child/Writer collection coverage beyond the first ProcessingItem page. Every temporary database, container, runner image/definition, artifact, and test directory was removed. Final review result: **PASSED / APPROVED**. The user explicitly approved Gate 9 on 2026-08-15; `G9-APPROVED = true`.
 
 ---
 
