@@ -356,7 +356,7 @@ Status:
 - G6-APPROVED: true.
 - Gate 6 migrations: NONE REQUIRED.
 - Gate 7: APPROVED / COMPLETE; implementation COMPLETE, verification PASSED, final review APPROVED; `G7-APPROVED = true`.
-- Gate 8: NOT STARTED.
+- Gate 8: APPROVED / COMPLETE; implementation COMPLETE, verification PASSED, final review APPROVED; `G8-APPROVED = true`.
 
 ### Tasks
 - [x] **G6-T01 P0** WAITING_USER_INPUT.
@@ -414,7 +414,7 @@ Planning inputs updated on 2026-08-11:
 - the final Gate 7 HOLD contract and plan were approved; local MVP Phase A implementation was authorized and completed;
 - both new migrations were created and executed only in disposable PostgreSQL 15 verification;
 - production Phase B and persistent/staging/production/remote migration execution remain unauthorized;
-- `G7-APPROVED = true`; formal implementation acceptance is complete; Gate 8 is NOT STARTED.
+- `G7-APPROVED = true`; formal implementation acceptance is complete; Gate 8 is APPROVED / COMPLETE with `G8-APPROVED = true`.
 
 ### Tasks
 - [x] **G7-T01 P0** Fechar schema DF.
@@ -567,7 +567,7 @@ Every G7-X acceptance has direct executable evidence. Function names and evidenc
 - **G7-X27** [DISPOSABLE POSTGRES] - `test_income_worker_path_has_zero_writer_supplier_prompt_or_notification`.
 - **G7-X28** [DISPOSABLE POSTGRES] - `test_income_ignored_releases_fifo_and_is_not_recovered`.
 - **G7-X29** [DISPOSABLE POSTGRES, MIGRATION] - `test_income_ignored_releases_fifo_and_is_not_recovered`, `test_ignored_constraint_rejects_wrong_reason`, `test_terminal_item_cannot_reserve_prompt`, and `test_gate7_migration_upgrade_and_previous_revision_round_trip`.
-- **G7-X30** [DISPOSABLE POSTGRES] - `test_income_worker_path_has_zero_writer_supplier_prompt_or_notification`; Gate 8 remains documentation-owned and NOT STARTED.
+- **G7-X30** [DISPOSABLE POSTGRES] - `test_income_worker_path_has_zero_writer_supplier_prompt_or_notification`; Gate 7 itself remains notification-free, while Gate 8 now owns the implemented terminal informational outcome.
 - **G7-X31** [REAL WEBHOOK, DISPOSABLE POSTGRES] - `test_real_webhook_enterprise_command_during_amount_prompt_is_busy` and `test_open_document_interaction_makes_command_busy`.
 - **G7-X32** [DISPOSABLE POSTGRES] - `test_open_command_remains_owner_when_worker_requires_direction`.
 - **G7-X33** [DISPOSABLE POSTGRES] - `test_simultaneous_command_and_document_prompt_exactly_one_owner`.
@@ -600,23 +600,81 @@ Every G7-X acceptance has direct executable evidence. Function names and evidenc
 
 ## GATE 8 — E2E
 
-Status: **NOT STARTED**.
+Status: **APPROVED / COMPLETE**. Product, architecture, plan, and implementation-HOLD contracts are approved; implementation is **COMPLETE**; verification is **PASSED**; Correction Pass 1 and Correction Pass 2 are **COMPLETE**; final approval review is **PASSED / APPROVED**. `G8-APPROVED = true`.
+
+### Tasks
+- [x] **G8-T01 P0** Define the exact terminal `ProcessingItem` -> final-notification mapping.
+- [x] **G8-T02 P0** Implement durable idempotent final-notification intent.
+- [x] **G8-T03 P0** Implement concurrency-safe reservation ensuring one logical notification owner.
+- [x] **G8-T04 P0** Implement stable final outbound identity and WUZAPI dispatch.
+- [x] **G8-T05 P0** Implement `ACKNOWLEDGED` and `OUTBOUND_OUTCOME_UNKNOWN` behavior with no blind resend.
+- [x] **G8-T06 P0** Implement safe recovery of `RESERVED` notifications that have not begun outbound dispatch.
+- [x] **G8-T07 P0** Integrate durable `COMPLETED` expense outcome with the frozen Gate 5 `format_success_message` implementation.
+- [x] **G8-T08 P0** Integrate `IGNORED / INCOME_OUT_OF_SCOPE` with the exact approved informational message.
+- [x] **G8-T09 P0** Integrate sanitized final notifications for `EXTRACTION_FAILED` and terminal `PERSISTENCE_FAILED`.
+- [x] **G8-T10 P0** Enforce fail-closed final-notification eligibility so nonterminal or ambiguous business states can never emit false success/failure.
+- [x] **G8-T11 P0** Implement Gate 8 E2E, replay, concurrency, outbound ambiguity, FIFO-independence, and correlation evidence for G8-X01 through G8-X12.
+- [x] **G8-T12 P0** Complete Gate 8 regression/static verification/governance evidence.
+
+### Frozen product contract
+- `COMPLETED` is eligible only with durable Writer `COMMITTED`, expense direction, amount/date, a successful direct or reconciled persistence Execution, and a persisted committed record ID.
+- `IGNORED / INCOME_OUT_OF_SCOPE` receives the approved informational message and preserves zero Writer business effect.
+- `EXTRACTION_FAILED` receives one logical sanitized processing-failure notification based on terminal status; provider identity/details are never required or exposed.
+- Terminal `PERSISTENCE_FAILED` receives one logical sanitized persistence-failure notification. `PERSISTING`, `PERSIST_RETRYABLE`, and `PERSIST_OUTCOME_UNKNOWN` receive no final success or failure notification.
+- `FAILED` and `EXPIRED` receive no new Gate 8 notification. `CANCELLED` preserves its existing acknowledgement and receives no additional Gate 8 final notification.
+- Business terminalization releases FIFO before final delivery; final notification transport neither blocks nor changes business state. Strict final-message ordering is not required.
+- Scheduling isolation is mandatory: the existing `fifo_worker` runtime supervises an independent business FIFO loop and a single-concurrency final-notification loop/thread. Business claiming never awaits final WUZAPI I/O; notifier scans at most 100 candidates, uses independent short DB sessions, holds no connection/lock during send, and catches notifier failures without terminating business processing.
+- Deterministic scheduling evidence must prove slow/timeout/exception/backlog notifier paths do not starve business claims, concurrent loops preserve business FIFO, shutdown after `DISPATCHED` yields UNKNOWN without resend, and shutdown at `RESERVED` preserves safe recovery.
+- Local Gate 8 acceptance uses deterministic local/fake boundaries and disposable PostgreSQL 15; real cellphone/external WUZAPI/real client DB validation is later and separately authorized.
 
 ### Tests obrigatórios
-- [ ] **G8-X01** PIX → expense → grava → WhatsApp.
-- [ ] **G8-X02** PIX → income → `IGNORED / INCOME_OUT_OF_SCOPE` → zero gravação em `financial_records` → mensagem informativa expense-only idempotente → WhatsApp.
-- [ ] **G8-X03** Direction ambígua → pergunta → grava.
-- [ ] **G8-X04** Valor ausente → pergunta → grava.
-- [ ] **G8-X05** Data ausente → timestamp → grava.
-- [ ] **G8-X06** Cinco documentos → FIFO.
-- [ ] **G8-X07** Dois usuários simultâneos.
-- [ ] **G8-X08** Replay webhook.
-- [ ] **G8-X09** Gemini indisponível.
-- [ ] **G8-X10** DB indisponível.
-- [ ] **G8-X11** WUZAPI outbound indisponível.
-- [ ] **G8-X12** Correlation ID reconstrói E2E.
+- [x] **G8-X01** PIX → expense → grava → WhatsApp.
+- [x] **G8-X02** PIX → income → `IGNORED / INCOME_OUT_OF_SCOPE` → zero gravação em `financial_records` → mensagem informativa expense-only idempotente → WhatsApp.
+- [x] **G8-X03** Direction ambígua → pergunta → grava.
+- [x] **G8-X04** Valor ausente → pergunta → grava.
+- [x] **G8-X05** Data ausente → timestamp → grava.
+- [x] **G8-X06** Cinco documentos → FIFO.
+- [x] **G8-X07** Dois usuários simultâneos.
+- [x] **G8-X08** Replay webhook.
+- [x] **G8-X09** Gemini/extraction unavailable -> `EXTRACTION_FAILED` -> zero Writer business write -> one logical approved extraction-failure notification.
+- [x] **G8-X10** Database transient/retryable -> no premature notification; eventual `COMPLETED` -> exactly one success; terminal `PERSISTENCE_FAILED` -> exactly one approved failure; `PERSIST_OUTCOME_UNKNOWN` -> no success/failure until reconciliation resolves it.
+- [x] **G8-X11** Eligible terminal outcome -> durable dispatch intent -> outbound unavailable/ambiguous -> `OUTBOUND_OUTCOME_UNKNOWN` -> no blind resend and unchanged business state.
+- [x] **G8-X12** Correlation ID reconstrói E2E.
 
-- [ ] **G8-APPROVED**
+### Actual Verified G8-X Evidence Matrix
+
+| Acceptance | Exact passing test function(s) and actual file | Evidence category |
+|---|---|---|
+| G8-X01 | `test_g8_x01_pix_expense_commits_and_sends_one_success` — `tests/test_platform_gate8_e2e_disposable_postgres.py` | LOCAL E2E / DISPOSABLE POSTGRES |
+| G8-X02 | `test_g8_x02_pix_income_is_ignored_and_sends_one_information_message` — E2E file; `test_real_webhook_income_runs_guard_with_physical_zero_writer_rows` — real-webhook file | REAL BUSINESS / REAL WEBHOOK / PHYSICAL ZERO-WRITER PROOF |
+| G8-X03 | `test_g8_x03_ambiguous_direction_answer_commits_and_sends_success` — E2E file; `test_real_webhook_direction_clarification_reaches_writer_committed` — real-webhook file | SIGNED WEBHOOK / APPLIED ANSWER / ACTUAL WRITER COMMITTED |
+| G8-X04 | `test_g8_x04_missing_amount_answer_commits_and_sends_success` — E2E file; `test_real_webhook_amount_clarification_reaches_writer_committed` — real-webhook file | SIGNED WEBHOOK / APPLIED ANSWER / ACTUAL WRITER COMMITTED |
+| G8-X05 | `test_g8_x05_missing_date_uses_timestamp_and_sends_success` — E2E file; `test_success_formatter_adapter_reuses_frozen_gate5_formatter` — unit file | UNIT / LOCAL E2E / DISPOSABLE POSTGRES |
+| G8-X06 | `test_g8_x06_five_documents_preserve_business_fifo_without_notification_barrier` — E2E file; `test_notification_backlog_does_not_starve_business_claims`, `test_business_and_notifier_loops_preserve_fifo_sequence` — unit file | LOCAL E2E / DISPOSABLE POSTGRES / SCHEDULING |
+| G8-X07 | `test_slow_final_sender_does_not_delay_next_business_claim` — unit file | TWO USERS / BLOCKED REAL NOTIFIER / REAL BUSINESS CLAIM AND COMPLETION |
+| G8-X08 | `test_g8_x08_original_webhook_replay_has_one_full_effect` — E2E file; `test_real_original_webhook_expense_replay_has_one_final_logical_outcome` — real-webhook file | ORIGINAL SIGNED WEBHOOK REPLAY / ACTUAL WRITER / DISPOSABLE POSTGRES |
+| G8-X09 | `test_g8_x09_extraction_unavailable_sends_one_sanitized_failure` — E2E file; `test_final_user_messages_are_exact_and_sanitized` — unit file | FAILURE / LOCAL E2E / UNIT |
+| G8-X10 | `test_g8_x10_actual_retryable_then_committed`, `test_g8_x10_actual_unknown_reconciles_committed`, `test_g8_x10_actual_writer_rejection_sends_failure` — E2E file; `test_retryable_and_persistence_outcome_unknown_create_no_intent` — disposable final-notifications file | ACTUAL PERSISTENCE / ACTUAL WRITER / RECONCILIATION |
+| G8-X11 | `test_g8_x11_outbound_unknown_is_not_resent` — E2E file; `test_final_sender_timeout_does_not_stop_business_loop`, `test_notifier_exception_does_not_stop_business_loop` — unit file; `test_shutdown_after_dispatched_recovers_unknown_without_resend` — disposable final-notifications file | OUTBOUND AMBIGUITY / REAL RUNTIME RECOVERY / SCHEDULING |
+| G8-X12 | `test_g8_x12_physical_correlation_chain` — E2E file | PHYSICAL PLATFORM + WRITER AUDIT CHAIN |
+
+File aliases in this matrix: E2E file = `tests/test_platform_gate8_e2e_disposable_postgres.py`; real-webhook file = `tests/test_platform_gate8_real_webhook_disposable_postgres.py`; unit file = `tests/test_platform_gate8_final_notifications_unit.py`; disposable final-notifications file = `tests/test_platform_gate8_final_notifications_disposable_postgres.py`.
+
+### Implementation Verification Evidence
+
+- Gate 8 focused after Correction Pass 1: **46 passed, 0 skipped, 0 failed, 0 errors**.
+- Frozen regressions: **Gate 4 210 passed; Gate 5 63 passed; Gate 6 64 passed; Gate 7 126 passed**, all with 0 skipped, 0 failed, and 0 errors.
+- Complete project suite: **611 passed, 0 skipped, 0 failed, 0 errors**.
+- Static verification: **compileall PASS; Ruff PASS; mypy PASS; git diff --check PASS**.
+- Physical verification: **PostgreSQL 15 disposable only**; Platform, local Writer, and Gate 3 disposable profiles were local to the same disposable container and cleaned afterward.
+- Correction hardening: reservation excludes existing shared ACK/UNKNOWN finalization keys, caller batch size is capped at 100, and deterministic 59/60-second grace evidence proves no pre-grace UNKNOWN and no resend.
+- Corrected evidence: the four Gate 8 files now use signed original-document webhooks, the real extraction dispatcher boundary, database-backed FIFO claims, actual Gate 4/5/6/7 business/PersistenceService paths, the actual local Gate 7 Writer, physical `financial_records`/`write_ledger` queries, and actual notifier-runtime shutdown/restart paths.
+- Correction Pass 2 restart evidence: `test_shutdown_after_dispatched_recovers_unknown_without_resend` starts the production notifier loop for the original durable dispatch, simulates process loss before finalization, then starts fresh notifier runtimes with fresh sessions at the injected 59- and 60-second clocks. The 59-second runtime produces no finalization/resend; the 60-second runtime produces exactly one UNKNOWN on the shared final key, no ACK, no resend, one total outbound attempt, and no business-state mutation. No recovery helper is invoked directly as the post-restart acceptance step.
+- Scope: new final-notification service, `fifo_worker.py` scheduling integration, and exactly four Gate 8 test files; no frozen Gate 4–7 test file modified.
+- Safety: **zero Gate 8 migrations**; no persistent/staging/production/Supabase/remote DB, external WUZAPI, Gemini, cellphone, or client database touched.
+- Governance: Gate 8 **APPROVED / COMPLETE**; implementation **COMPLETE**; verification **PASSED**; Correction Pass 1 and Correction Pass 2 **COMPLETE**; final approval review **PASSED / APPROVED**; `G8-APPROVED = true`; Gate 9 and Gate 10 **NOT STARTED**; Production Phase B **NOT IMPLEMENTED**.
+
+- [x] **G8-APPROVED = true**
 
 ---
 

@@ -3,10 +3,10 @@
 > Convenience summary only. `TASKS_TESTS_GATES.md` is the operational source of truth.
 
 ## Current Gate
-**Gate 7 — Local MVP persistence (APPROVED / COMPLETE)**
+**Gate 8 — E2E final outcomes (APPROVED / COMPLETE)**
 
 ## Last User-Approved Gate
-**Gate 7 — Local MVP persistence (Approved on 2026-08-13, America/Sao_Paulo)**
+**Gate 8 — E2E final outcomes (Approved on 2026-08-14, America/Sao_Paulo)**
 
 The standalone Transcription IA 1.0 was validated before this platform initiative, but the new architecture begins at Gate 0.
 
@@ -56,7 +56,33 @@ The standalone Transcription IA 1.0 was validated before this platform initiativ
 - Gate 7 cross-protocol ownership: CLOSED FOR HOLD. `UserInteraction` and `EnterpriseCommandSession` share the exact conversation-level `conversation_queue_counters` row lock (`FOR UPDATE`) before cross-table check/create; independent partial indexes remain defense-in-depth.
 - Gate 7 command barrier: an OPEN `/empreendimento` session mutates no ProcessingItem/sequence but prevents same-conversation READY business claims and document prompt creation; ingestion/extraction/READY continue, other conversations proceed, and ANSWERED/EXPIRED/CANCELLED releases earliest work.
 - Gate 7 routing/lifecycle: recognized commands precede generic answers; numeric text has one protocol owner; command answers use dedicated durable APPLIED/REJECTED/LATE records; stable outbound mapping follows no-blind-resend and accepts valid answers in OUTBOUND_OUTCOME_UNKNOWN.
-- Gate 8: NOT STARTED.
+- Gate 8 product contract: CLOSED on 2026-08-14.
+- Gate 8 architecture contract: CLOSED.
+- Gate 8 implementation plan: APPROVED.
+- Gate 8 implementation HOLD: APPROVED.
+- Gate 8 implementation: COMPLETE.
+- Gate 8 verification: PASSED.
+- Gate 8 Correction Pass 1: COMPLETE.
+- Gate 8 Correction Pass 2: COMPLETE.
+- Gate 8 final approval review: PASSED / APPROVED on 2026-08-14.
+- Gate 8 overall: APPROVED / COMPLETE.
+- G8-APPROVED: true.
+- Gate 8 terminal notification mapping: `COMPLETED -> EXPENSE_COMMITTED`, `IGNORED / INCOME_OUT_OF_SCOPE -> INCOME_OUT_OF_SCOPE`, `EXTRACTION_FAILED -> EXTRACTION_FAILED`, and terminal `PERSISTENCE_FAILED -> PERSISTENCE_FAILED`; all nonterminal/ambiguous business states are ineligible.
+- Gate 8 outbound contract: one durable logical intent and at most one locally authorized WUZAPI attempt; `RESERVED -> DISPATCHED -> ACKNOWLEDGED | OUTBOUND_OUTCOME_UNKNOWN`; no blind resend after `DISPATCHED`.
+- Gate 8 storage decision: reuse the existing `executions` ledger and its unique operation/outbound identities; NO GATE 8 MIGRATION REQUIRED.
+- Gate 8 FIFO contract: business terminalization releases FIFO before final notification completion; notification transport never reverts or blocks business state and does not require strict cross-item WhatsApp ordering.
+- Gate 8 scheduling contract: the existing `fifo_worker` runtime owns two independent execution loops—business FIFO in the main worker thread and one bounded final-notification thread. The business loop never awaits final WUZAPI I/O; notifier DB sessions are independent and no connection/row lock is held during outbound I/O.
+- Gate 8 notifier bounds: candidate scan maximum 100, dispatch concurrency 1, 1-second interruptible cadence, per-iteration exception isolation, daemon-thread shutdown with durable DISPATCHED/RESERVED recovery semantics.
+- Gate 8 local acceptance: deterministic real local webhook routing, disposable PostgreSQL 15, fake Transcription/Gemini and WUZAPI boundaries, and local Gate 7 Writer/disposable DF DB where appropriate; no real cellphone, external network, or real client DB required.
+- Gate 8 implementation source scope: exactly two source paths changed — NEW `apps/orchestrator/src/orchestrator/services/final_notification_service.py` and MODIFIED `apps/orchestrator/src/orchestrator/fifo_worker.py`; exactly four new Gate 8 test files; governance documentation only beyond that source scope.
+- Gate 8 correction-pass implementation evidence: focused suite 46 passed; Gate 4 regression 210 passed; Gate 5 regression 63 passed; Gate 6 regression 64 passed; Gate 7 regression 126 passed; complete project suite 611 passed; every suite had 0 skipped, 0 failed, and 0 errors.
+- Gate 8 static evidence: compileall PASS; Ruff PASS; mypy PASS; git diff --check PASS.
+- Gate 8 correction hardening: reservation explicitly excludes an existing shared ACK/UNKNOWN finalization key; caller batch sizes are fail-closed to the frozen maximum of 100; deterministic 59/60-second grace-boundary evidence proves no pre-grace UNKNOWN and no resend.
+- Gate 8 scheduling evidence: slow sender, timeout, notifier exception, backlog, five-document FIFO, RESERVED restart recovery, and DISPATCHED process-loss-to-UNKNOWN paths co-drive the real notifier/runtime and database-backed business claim entrypoints with deterministic synchronization; business claiming and completion remain independent of notifier I/O.
+- Gate 8 Correction Pass 2 closes the sole remaining review blocker: after an actual runtime reaches a durably committed `DISPATCHED` checkpoint and loses the process before finalization, newly started production notifier runtimes independently recover the same database state at both injected boundaries. At 59 seconds the fresh runtime preserves `RESERVED + DISPATCHED`, creates no finalization, and performs no resend; at 60 seconds a second fresh runtime creates exactly one shared-key `FINAL_NOTIFICATION_OUTCOME_UNKNOWN`, no ACK, and no resend. The outbound attempt count remains one and the ProcessingItem business result remains unchanged.
+- Gate 8 E2E evidence: signed original-document webhooks, the real extraction dispatcher boundary, real Gate 4/5/6/7 business processing, actual PersistenceService retry/reconciliation/rejection paths, and the actual local Gate 7 Writer prove physical `financial_records`/`write_ledger` effects and zero-write outcomes without manually terminalizing accepted scenarios.
+- Gate 8 database evidence: PostgreSQL 15 disposable environment only, with isolated local Platform, Gate 7 Writer DF, and full-suite Gate 3 disposable databases; no Gate 8 migration; no persistent, staging, production, Supabase, remote, or client database touched; disposable resources cleaned afterward.
+- Gate 8 scope integrity: `business_rules_evaluator.py`, WuzapiClient, main router, PersistenceService, Writer, Transcription, models, migrations, dependencies, and deployment/runtime configuration unchanged; no Gate 9/10 or production Phase B work.
 - Gate 7 Correction Pass 2 focused suite: 126 passed, 0 skipped, 0 failed, 0 errors.
 - Gate 7 regression evidence: Gate 4 210 passed; Gate 5 63 passed; Gate 6 64 passed; each with 0 skipped, 0 failed, and 0 errors.
 - Complete project suite after Gate 7 Correction Pass 2: 565 passed, 0 skipped, 0 failed, 0 errors.
@@ -68,7 +94,7 @@ The standalone Transcription IA 1.0 was validated before this platform initiativ
 - Production migration execution: NOT AUTHORIZED.
 - Remote database execution: NOT AUTHORIZED.
 - Gate 7 Correction Pass 2 closure: VALIDATING prompt creation requires matching worker ownership and a live lease while WAITING replay remains idempotent; Writer v2 semantic validation and canonicalization precede hashing/ledger/DML; generic commit-time DBAPI uncertainty maps to OUTCOME_UNKNOWN; post-race lookup is deadline-guarded; real-webhook duplicate, CANCELLED-late-answer, and `/empreendimento`-during-amount paths are directly proven; stale-binding fallback and cross-conversation FIFO/barrier invariants are directly proven. G7-X01 through G7-X41 have an authoritative exact test/evidence-type map.
-- Next Step: push the approved Gate 7 commit only when separately authorized. Gate 7 is APPROVED / COMPLETE, `G7-APPROVED = true`, production Phase B remains NOT IMPLEMENTED and blocked on external schema/deployment inputs, and Gate 8 remains NOT STARTED.
+- Next Step: push the approved Gate 8 commit only after separate explicit authorization. Gate 9 and Gate 10 remain NOT STARTED; Production Phase B remains NOT IMPLEMENTED.
 - Gate 4: COMPLETE.
 - Gate 3 — Transcription was explicitly approved by the user on 2026-08-04 at 00:20:08 -03:00 (America/Sao_Paulo), based on the formal application review result `REVIEW PASSED WITH FOLLOW-UPS`.
 - Gate 3 application implementation: APPROVED.
@@ -154,9 +180,9 @@ Platform PostgreSQL owns platform routing/configuration state, persistent FIFO q
 
 No blocker prevents Gate 3 closure; Gate 3 is complete.
 
-Gate 7 has no unresolved local architecture decision and no local implementation blocker. The authorized local Phase A implementation is complete and under review. The production adapter remains blocked on the client's real enterprise schema and final deployment/adoption inputs.
+Gate 7 has no unresolved local architecture decision and no local implementation blocker. The authorized local Phase A implementation is APPROVED / COMPLETE / PUSHED. The production adapter remains blocked on the client's real enterprise schema and final deployment/adoption inputs.
 
 Production release remains blocked until real CPF/CNPJ configuration and Security Gate requirements are complete.
 
 ## Recommended Next Action
-Push the approved Gate 7 commit only when separately authorized. Gate 7 is APPROVED / COMPLETE, `G7-APPROVED = true`, production Phase B remains NOT IMPLEMENTED and blocked on external schema/deployment inputs, and Gate 8 remains NOT STARTED.
+Gate 8 is APPROVED / COMPLETE and `G8-APPROVED = true`. Push only after separate explicit authorization. Do not start Gates 9–10, execute migrations/databases, or begin production Phase B without separate authorization.

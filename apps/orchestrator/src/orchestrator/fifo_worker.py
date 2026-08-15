@@ -59,18 +59,77 @@ from orchestrator.services.persistence_service import (
     reconcile_persistence_outcomes,
     recover_stale_persistence_items,
 )
+from orchestrator.services.final_notification_service import (
+    FINAL_NOTIFICATION_POLL_INTERVAL_SECONDS,
+    FINAL_NOTIFICATION_SHUTDOWN_JOIN_SECONDS,
+    run_final_notification_iteration,
+)
 from orchestrator.wuzapi import WuzapiClient
 from db.models import ProcessingItem, User
 
 logger = logging.getLogger(__name__)
 
 running = True
+final_notification_shutdown_event = threading.Event()
 
 
 def handle_shutdown(signum: int, frame: object) -> None:
     global running
     logger.info("Shutdown signal received. Stopping FIFO worker loop...")
     running = False
+    final_notification_shutdown_event.set()
+
+
+def _send_final_notification(
+    phone_number: str, message: str, outbound_message_id: str
+) -> bool:
+    """Send one already-dispatched final notification through the frozen client."""
+    client = WuzapiClient()
+    if not client.base_url or not client.token:
+        logger.error(
+            "WUZAPI is not configured; final notification outcome is unconfirmed."
+        )
+        return False
+    try:
+        asyncio.run(client.send_text_message(phone_number, message))
+        return True
+    except Exception:
+        logger.warning(
+            "Final notification outcome is unconfirmed for outbound identity %s.",
+            outbound_message_id,
+        )
+        return False
+
+
+def run_final_notification_loop(
+    session_factory: sessionmaker,
+    shutdown_event: threading.Event,
+) -> None:
+    """Run the bounded notifier independently from FIFO business processing."""
+    while not shutdown_event.is_set():
+        try:
+            run_final_notification_iteration(
+                session_factory,
+                _send_final_notification,
+                stop_requested=shutdown_event.is_set,
+            )
+        except Exception:
+            logger.error("Final notification iteration failed; retrying safely.")
+        shutdown_event.wait(FINAL_NOTIFICATION_POLL_INTERVAL_SECONDS)
+
+
+def _start_final_notification_thread(
+    session_factory: sessionmaker,
+    shutdown_event: threading.Event,
+) -> threading.Thread:
+    thread = threading.Thread(
+        target=run_final_notification_loop,
+        args=(session_factory, shutdown_event),
+        name="bot-df-final-notifier",
+        daemon=True,
+    )
+    thread.start()
+    return thread
 
 
 class WorkerClaimTracker:
@@ -327,6 +386,8 @@ def run_fifo_worker_loop(
       - Gate 6 evaluation, clarification, resume, and frozen persistence handoff.
     """
     global running
+    running = True
+    final_notification_shutdown_event.clear()
     signal.signal(signal.SIGINT, handle_shutdown)
     signal.signal(signal.SIGTERM, handle_shutdown)
 
@@ -352,10 +413,21 @@ def run_fifo_worker_loop(
     with SessionLocal() as db:
         claim_tracker.startup_recover_claims(db)
 
+    final_notification_thread = _start_final_notification_thread(
+        SessionLocal,
+        final_notification_shutdown_event,
+    )
+
     last_sweeper_run = 0.0
     last_heartbeat_run = 0.0
 
     while running:
+        if not final_notification_thread.is_alive():
+            logger.error("Final notification loop stopped; restarting it safely.")
+            final_notification_thread = _start_final_notification_thread(
+                SessionLocal,
+                final_notification_shutdown_event,
+            )
         now_ts = time.time()
 
         # 1. Periodic Heartbeat Renewal Loop (isolated from claim loop)
@@ -449,6 +521,8 @@ def run_fifo_worker_loop(
             logger.error(f"Error in FIFO worker claim iteration: {exc}", exc_info=True)
             time.sleep(poll_interval)
 
+    final_notification_shutdown_event.set()
+    final_notification_thread.join(FINAL_NOTIFICATION_SHUTDOWN_JOIN_SECONDS)
     logger.info(f"Bot DF FIFO Worker {worker_id} shutdown complete.")
 
 
