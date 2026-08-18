@@ -731,7 +731,7 @@ Final-review correction evidence (2026-08-15): the four P1 code blockers are cor
 
 ## GATE 10 — Segurança / Release
 
-Status: **G10-A IMPLEMENTED / LOCAL VERIFICATION PASSED / SECURITY AUDIT BLOCKED / CORRECTION DECISION REQUIRED**. Gate 9 is APPROVED / COMPLETE / PUSHED at `ef8551535f807fb231a841367cea8654cbed22a0`. G10-A was explicitly authorized and implemented on 2026-08-16. G10-B staging/VPS access, secret rotation, production adoption, tagging, deployment, G10-C, and Production Phase B remain NOT STARTED / NOT AUTHORIZED. `G10-APPROVED = false`.
+Status: **G10-A APPROVED / COMPLETE LOCALLY; G10-B1 P1 OFFLINE VERIFICATION COMPLETE / USER APPROVAL / GIT CLOSURE HOLD**. Gate 9 is APPROVED / COMPLETE / PUSHED at `ef8551535f807fb231a841367cea8654cbed22a0`. G10-A was explicitly authorized, implemented, and pushed at `11ddd51cc96a9ad3ac16e3b5971bf41293289e57`. G10-B1 parser compatibility was committed and pushed at `4f265eb001844eac269a066109f4e8a662716e32`. G10-B1 harness P1 offline implementation and correction pass are complete. G10-B1 P2–P9 execution, G10-B2 staging/VPS access, secret rotation, production adoption, tagging, deployment, G10-C, and Production Phase B remain NOT STARTED / NOT AUTHORIZED. `G10-APPROVED = false`.
 
 Planning package: `.agents/IMPLEMENTATION_PLAN_GATE_10.md`.
 

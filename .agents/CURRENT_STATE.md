@@ -3,7 +3,7 @@
 > Convenience summary only. `TASKS_TESTS_GATES.md` is the operational source of truth.
 
 ## Current Gate
-**Gate 10 — Security / Release Candidate (G10-A APPROVED / COMPLETE LOCALLY)**
+**Gate 10 — Security / Release Candidate (G10-A APPROVED / COMPLETE LOCALLY; G10-B1 P1 OFFLINE VERIFICATION COMPLETE / USER APPROVAL / GIT CLOSURE HOLD)**
 
 ## Last User-Approved Gate
 **Gate 9 — Operations and observability (Approved on 2026-08-15, America/Sao_Paulo)**

@@ -1,0 +1,141 @@
+name: g10b1
+
+services:
+  g10b1-postgres:
+    image: postgres:15-alpine
+    container_name: g10b1_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${G10_B1_DB_USER:-g10b1_user}
+      POSTGRES_PASSWORD: ${G10_B1_DB_PASSWORD:-g10b1_secure_password_123}
+      POSTGRES_DB: ${G10_B1_DB_NAME:-platform_g10b1}
+    volumes:
+      - g10b1_postgres_data:/var/lib/postgresql/data
+    networks:
+      - g10b1_internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    security_opt:
+      - no-new-privileges:true
+
+  wuzapi:
+    image: g10b1-wuzapi:42c38d38e2195f00e30e10ec85871fbd48512dd9
+    container_name: g10b1_wuzapi
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8080:8080"
+    environment:
+      WUZAPI_PORT: "8080"
+      WUZAPI_ADMIN_TOKEN: ${G10_B1_WUZAPI_TOKEN:?WUZAPI token required}
+      WUZAPI_GLOBAL_HMAC_KEY: ${G10_B1_WUZAPI_WEBHOOK_SECRET:?Webhook secret required}
+      WEBHOOK_FORMAT: "json"
+      WUZAPI_WEBHOOK_URL: "http://orchestrator:8000/webhook"
+    volumes:
+      - g10b1_wuzapi_data:/app/db
+    networks:
+      - g10b1_internal
+
+  orchestrator:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    container_name: g10b1_orchestrator
+    command: ["uvicorn", "orchestrator.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    ports:
+      - "127.0.0.1:8000:8000"
+    environment:
+      APP_ENV: "test"
+      DATABASE_URL: "postgresql://${G10_B1_DB_USER:-g10b1_user}:${G10_B1_DB_PASSWORD:-g10b1_secure_password_123}@g10b1-postgres:5432/${G10_B1_DB_NAME:-platform_g10b1}"
+      API_KEY_HASH_SECRET: ${G10_B1_API_KEY_HASH_SECRET:-secret_hash_key_g10b1_secure_32bytes_min}
+      WUZAPI_WEBHOOK_SECRET: ${G10_B1_WUZAPI_WEBHOOK_SECRET:?Webhook secret required}
+      REGISTRATION_SECRET_PEPPER: ${G10_B1_REGISTRATION_PEPPER:-pepper_secret_g10b1_32bytes_min}
+      LOG_PII_HASH_KEY: ${G10_B1_LOG_PII_HASH_KEY:-pii_hash_secret_g10b1_32bytes_min}
+      WUZAPI_BASE_URL: "http://wuzapi:8080"
+      WUZAPI_TOKEN: ${G10_B1_WUZAPI_TOKEN:?WUZAPI token required}
+      TRANSCRIPTION_SERVICE_URL: "http://transcription:8001"
+      TRANSCRIPTION_URL: "http://transcription:8001"
+      DB_WRITER_URL: "http://db-writer:8004"
+      BOT_DF_URL: "http://bot-df:8003"
+      ORCHESTRATOR_TO_BOT_TOKEN: ${G10_B1_INTERNAL_TOKEN:-g10b1_internal_shared_token_secure_32b}
+      BOT_TO_TRANSCRIPTION_TOKEN: ${G10_B1_INTERNAL_TOKEN:-g10b1_internal_shared_token_secure_32b}
+      ORCHESTRATOR_TO_WRITER_TOKEN: ${G10_B1_INTERNAL_TOKEN:-g10b1_internal_shared_token_secure_32b}
+      DF_HOLDING_IDENTIFIERS: ${G10_B1_DF_HOLDING_IDENTIFIERS:-DF_HOLDING_TEST}
+      REGISTRATION_MAX_FAILED_ATTEMPTS: "5"
+      REGISTRATION_FAILURE_WINDOW_SECONDS: "3600"
+      REGISTRATION_BLOCK_SECONDS: "86400"
+      MAX_CONVERSATION_PENDING_ITEMS: "10"
+      MAX_ORGANIZATION_OUTSTANDING_ITEMS: "100"
+      MAX_ORGANIZATION_ACTIVE_ITEMS: "20"
+    depends_on:
+      g10b1-postgres:
+        condition: service_healthy
+    networks:
+      - g10b1_internal
+
+  transcription:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    container_name: g10b1_transcription
+    command: ["uvicorn", "transcription.main:app", "--host", "0.0.0.0", "--port", "8001"]
+    environment:
+      APP_ENV: "test"
+      DATABASE_URL: "postgresql://${G10_B1_DB_USER:-g10b1_user}:${G10_B1_DB_PASSWORD:-g10b1_secure_password_123}@g10b1-postgres:5432/${G10_B1_DB_NAME:-platform_g10b1}"
+      TRANSCRIPTION_DATABASE_URL: "postgresql://${G10_B1_DB_USER:-g10b1_user}:${G10_B1_DB_PASSWORD:-g10b1_secure_password_123}@g10b1-postgres:5432/${G10_B1_DB_NAME:-platform_g10b1}"
+      API_KEY_HASH_SECRET: ${G10_B1_API_KEY_HASH_SECRET:-secret_hash_key_g10b1_secure_32bytes_min}
+      WUZAPI_WEBHOOK_SECRET: ${G10_B1_WUZAPI_WEBHOOK_SECRET:?Webhook secret required}
+      REGISTRATION_SECRET_PEPPER: ${G10_B1_REGISTRATION_PEPPER:-pepper_secret_g10b1_32bytes_min}
+      LOG_PII_HASH_KEY: ${G10_B1_LOG_PII_HASH_KEY:-pii_hash_secret_g10b1_32bytes_min}
+      GEMINI_API_KEY: ${G10_B1_GEMINI_API_KEY:-placeholder_g10b1_offline_key}
+      GEMINI_MODEL: ${G10_B1_GEMINI_MODEL:-gemini-2.5-flash}
+      WUZAPI_BASE_URL: "http://wuzapi:8080"
+      WUZAPI_TOKEN: ${G10_B1_WUZAPI_TOKEN:?WUZAPI token required}
+      BOT_TO_TRANSCRIPTION_TOKEN: ${G10_B1_INTERNAL_TOKEN:-g10b1_internal_shared_token_secure_32b}
+      MAX_UPLOAD_SIZE_MB: "25"
+      MAX_CONCURRENT_VALIDATIONS: "4"
+      MAX_PROVIDER_CONCURRENT_CALLS: "2"
+      PROVIDER_CAPACITY_ACQUIRE_TIMEOUT_SECONDS: "2"
+    depends_on:
+      g10b1-postgres:
+        condition: service_healthy
+    networks:
+      - g10b1_internal
+
+  bot-df:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    container_name: g10b1_bot_df
+    command: ["uvicorn", "bot_df.main:app", "--host", "0.0.0.0", "--port", "8003"]
+    environment:
+      APP_ENV: "test"
+      ORCHESTRATOR_TO_BOT_TOKEN: ${G10_B1_INTERNAL_TOKEN:-g10b1_internal_shared_token_secure_32b}
+    networks:
+      - g10b1_internal
+
+  db-writer:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    container_name: g10b1_db_writer
+    command: ["uvicorn", "db_writer.main:app", "--host", "0.0.0.0", "--port", "8004"]
+    environment:
+      APP_ENV: "test"
+      DF_DATABASE_URL: "postgresql://${G10_B1_DB_USER:-g10b1_user}:${G10_B1_DB_PASSWORD:-g10b1_secure_password_123}@g10b1-postgres:5432/${G10_B1_DB_NAME:-platform_g10b1}"
+      DB_WRITER_INTERNAL_TOKEN: ${G10_B1_INTERNAL_TOKEN:-g10b1_internal_shared_token_secure_32b}
+    depends_on:
+      g10b1-postgres:
+        condition: service_healthy
+    networks:
+      - g10b1_internal
+
+networks:
+  g10b1_internal:
+    driver: bridge
+
+volumes:
+  g10b1_postgres_data:
+  g10b1_wuzapi_data:
