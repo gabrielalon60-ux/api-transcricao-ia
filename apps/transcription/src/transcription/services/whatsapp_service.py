@@ -144,7 +144,6 @@ class WhatsAppService:
 
             media_info = message.get(msg_type, {})
             mime_type = media_info.get("mimetype", "")
-            message_id = message.get("key", {}).get("id", "")
             filename = media_info.get("fileName", f"whatsapp_{msg_type}")
 
         # ── 2. Validate MIME type ──────────────────────────────────────
@@ -158,18 +157,13 @@ class WhatsAppService:
 
         # ── 3. Download media (if WUZAPI) ────────────────────────────────
         if not is_evolution:
-            logger.info("Downloading WhatsApp media.")
+            logger.info("Downloading WhatsApp media via WUZAPI v1.0.8 native adapter.")
             try:
-                media_info_full = await self.wuzapi.get_media_info(message_id)
-                media_url = (
-                    media_info_full.get("data", {}).get("url")
-                    or media_info_full.get("url")
-                    or ""
+                media_bytes = await self.wuzapi.download_media_v108(
+                    msg_type,
+                    media_info,
+                    expected_mime=mime_type,
                 )
-                if not media_url:
-                    raise WuzapiError("WUZAPI returned no media URL.")
-
-                media_bytes = await self.wuzapi.download_media(media_url)
             except WuzapiError:
                 logger.exception("WhatsApp media download failed.")
                 await self._safe_send(

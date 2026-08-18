@@ -308,6 +308,142 @@ class WuzapiClient:
 
         return response.content
 
+    async def download_media_v108(
+        self,
+        msg_type: str,
+        media_info: dict,
+        expected_mime: str | None = None,
+    ) -> bytes:
+        """
+        Download raw media binary from WUZAPI v1.0.8 via native download endpoints:
+        - POST /chat/downloadimage for imageMessage
+        - POST /chat/downloaddocument for documentMessage
+
+        Performs strict base64 decoding, MIME integrity validation, file length checks,
+        and SHA-256 verification.
+        Raises WuzapiError on any validation failure.
+        """
+        import base64
+        import hashlib
+        import hmac
+
+        url = (
+            f"{self.base_url}/chat/downloadimage"
+            if msg_type == "imageMessage"
+            else f"{self.base_url}/chat/downloaddocument"
+        )
+
+        def _normalize_crypto_field(field_name: str, val: object, required: bool = False) -> str:
+            if val is None or val == "":
+                if required:
+                    raise WuzapiError(f"Missing required cryptographic field '{field_name}'.")
+                return ""
+            if isinstance(val, bool):
+                raise WuzapiError(f"Invalid boolean value for cryptographic field '{field_name}'.")
+            if isinstance(val, str):
+                return val
+            if isinstance(val, (bytes, bytearray)):
+                return base64.b64encode(val).decode("ascii")
+            raise WuzapiError(f"Unsupported type '{type(val).__name__}' for cryptographic field '{field_name}'.")
+
+        def _parse_file_length(val: object) -> int:
+            if val is None or isinstance(val, bool):
+                raise WuzapiError("FileLength is missing or boolean.")
+            if not isinstance(val, (str, int)):
+                raise WuzapiError(f"Invalid FileLength type '{type(val).__name__}': must be int or str.")
+            try:
+                num = int(val)
+            except (ValueError, TypeError) as exc:
+                raise WuzapiError(f"Invalid FileLength '{val}': must be numeric.") from exc
+            if num <= 0:
+                raise WuzapiError(f"Invalid FileLength '{num}': must be positive integer.")
+            return num
+
+        media_key = _normalize_crypto_field("MediaKey", media_info.get("mediaKey") or media_info.get("MediaKey"), required=True)
+        file_enc_sha = _normalize_crypto_field("FileEncSHA256", media_info.get("fileEncSHA256") or media_info.get("FileEncSHA256"))
+        file_sha = _normalize_crypto_field("FileSHA256", media_info.get("fileSHA256") or media_info.get("FileSHA256"))
+
+        file_length_raw = media_info.get("fileLength") or media_info.get("FileLength")
+        file_length = _parse_file_length(file_length_raw) if file_length_raw is not None else 0
+
+        mimetype_sent = media_info.get("mimetype") or media_info.get("Mimetype") or ""
+
+        payload = {
+            "Url": media_info.get("url") or media_info.get("URL") or "",
+            "DirectPath": media_info.get("directPath") or media_info.get("DirectPath") or "",
+            "MediaKey": media_key,
+            "Mimetype": mimetype_sent,
+            "FileEncSHA256": file_enc_sha,
+            "FileSHA256": file_sha,
+            "FileLength": file_length,
+        }
+
+        response = await self._request(
+            "POST",
+            url,
+            headers=self._headers,
+            timeout=60,
+            json_payload=payload,
+        )
+
+        try:
+            res_data = response.json()
+        except Exception as exc:
+            raise WuzapiError(f"Failed to parse JSON response from WUZAPI v1.0.8 media endpoint: {exc}") from exc
+
+        # Response MIME Validation
+        res_mimetype = res_data.get("Mimetype") or res_data.get("mimetype")
+        if expected_mime:
+            if not res_mimetype or not isinstance(res_mimetype, str) or not res_mimetype.strip():
+                raise WuzapiError("Missing or invalid Mimetype in WUZAPI v1.0.8 response.")
+            norm_expected = expected_mime.split(";")[0].strip().lower()
+            norm_res = res_mimetype.split(";")[0].strip().lower()
+            if norm_expected != norm_res:
+                raise WuzapiError(f"MIME type mismatch: expected '{norm_expected}', got WUZAPI response '{norm_res}'.")
+
+        data_url = res_data.get("Data") or res_data.get("data") or ""
+        if not isinstance(data_url, str) or not data_url.startswith("data:") or ";base64," not in data_url:
+            raise WuzapiError("Invalid or missing Data URL in WUZAPI v1.0.8 media response.")
+
+        header, base64_payload = data_url.split(";base64,", 1)
+        mime_segment = header[5:].split(";")[0].strip()
+        if not mime_segment:
+            raise WuzapiError("Data URL contains empty MIME type segment.")
+
+        data_url_mime = mime_segment.lower()
+        if expected_mime:
+            norm_expected = expected_mime.split(";")[0].strip().lower()
+            if norm_expected != data_url_mime:
+                raise WuzapiError(f"MIME type mismatch: expected '{norm_expected}', got Data URL MIME '{data_url_mime}'.")
+
+        try:
+            media_bytes = base64.b64decode(base64_payload, validate=True)
+        except Exception as exc:
+            raise WuzapiError(f"Failed to decode base64 Data URL payload: {exc}") from exc
+
+        if not media_bytes:
+            raise WuzapiError("Decoded media binary payload from WUZAPI v1.0.8 is empty.")
+
+        # File Size Integrity Verification
+        if file_length > 0 and len(media_bytes) != file_length:
+            raise WuzapiError(f"File size mismatch: expected {file_length} bytes, got {len(media_bytes)} bytes.")
+
+        # File SHA-256 Integrity Verification
+        if file_sha:
+            try:
+                expected_sha_bytes = base64.b64decode(file_sha, validate=True)
+            except Exception as exc:
+                raise WuzapiError(f"Invalid expected FileSHA256 base64 format: {exc}") from exc
+
+            if len(expected_sha_bytes) != 32:
+                raise WuzapiError(f"Invalid FileSHA256 length: expected 32 bytes, got {len(expected_sha_bytes)} bytes.")
+
+            actual_sha_bytes = hashlib.sha256(media_bytes).digest()
+            if not hmac.compare_digest(actual_sha_bytes, expected_sha_bytes):
+                raise WuzapiError("File SHA-256 digest mismatch.")
+
+        return media_bytes
+
     async def send_text_message(self, phone: str, text: str) -> None:
         """
         Send a plain-text WhatsApp message via WUZAPI.

@@ -3,7 +3,7 @@
 > Convenience summary only. `TASKS_TESTS_GATES.md` is the operational source of truth.
 
 ## Current Gate
-**Gate 10 — Security / Release Candidate (G10-A APPROVED / COMPLETE LOCALLY; G10-B1 P1 PUSHED; G10-B1 P2 BLOCKED ON WUZAPI CLIENT SOURCE COMPATIBILITY)**
+**Gate 10 — Security / Release Candidate (G10-A APPROVED / COMPLETE LOCALLY; G10-B1 P1 PUSHED; G10-B1 P2 MEDIA CLIENT INTEGRITY CORRECTED FOR V1.0.8 / FINAL SOURCE REVIEW HOLD)**
 
 ## Last User-Approved Gate
 **Gate 9 — Operations and observability (Approved on 2026-08-15, America/Sao_Paulo)**
