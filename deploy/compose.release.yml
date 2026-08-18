@@ -1,0 +1,122 @@
+name: api-transcricao-release
+
+x-app: &app
+  image: ${RELEASE_IMAGE:?immutable RELEASE_IMAGE is required}
+  restart: unless-stopped
+  read_only: true
+  tmpfs: [/tmp:rw,noexec,nosuid,nodev,size=64m]
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  user: "10001:10001"
+  pids_limit: 256
+  mem_limit: 768m
+  cpus: 1.0
+  environment: &app-env
+    APP_ENV: ${APP_ENV:?APP_ENV is required}
+    DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+    API_KEY_HASH_SECRET: ${API_KEY_HASH_SECRET:?API_KEY_HASH_SECRET is required}
+    WUZAPI_WEBHOOK_SECRET: ${WUZAPI_WEBHOOK_SECRET:?WUZAPI_WEBHOOK_SECRET is required}
+    REGISTRATION_SECRET_PEPPER: ${REGISTRATION_SECRET_PEPPER:?REGISTRATION_SECRET_PEPPER is required}
+    LOG_PII_HASH_KEY: ${LOG_PII_HASH_KEY:?LOG_PII_HASH_KEY is required}
+  networks: [internal]
+
+services:
+  platform-db:
+    image: ${POSTGRES_IMAGE:?immutable POSTGRES_IMAGE is required}
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER:?DB_USER is required}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
+      POSTGRES_DB: ${DB_NAME:?DB_NAME is required}
+    volumes: [platform-db-data:/var/lib/postgresql/data]
+    networks: [database]
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, SETGID, SETUID]
+
+  orchestrator:
+    <<: *app
+    command: [uvicorn, orchestrator.main:app, --host, 0.0.0.0, --port, "8002"]
+    environment:
+      <<: *app-env
+      BOT_DF_URL: http://bot-df:8003
+      TRANSCRIPTION_URL: http://transcription:8001
+      WUZAPI_BASE_URL: http://wuzapi:8080
+      WUZAPI_TOKEN: ${WUZAPI_TOKEN:?WUZAPI token is required}
+      ORCHESTRATOR_TO_BOT_TOKEN: ${ORCHESTRATOR_TO_BOT_TOKEN:?token is required}
+      BOT_TO_TRANSCRIPTION_TOKEN: ${BOT_TO_TRANSCRIPTION_TOKEN:?token is required}
+      TRANSCRIPTION_SERVICE_URL: http://transcription:8001
+      ORCHESTRATOR_TO_WRITER_TOKEN: ${DB_WRITER_INTERNAL_TOKEN:?token is required}
+      DB_WRITER_URL: http://db-writer:8004
+      DF_HOLDING_IDENTIFIERS: ${DF_HOLDING_IDENTIFIERS:?identifier reference is required}
+      REGISTRATION_MAX_FAILED_ATTEMPTS: "5"
+      REGISTRATION_FAILURE_WINDOW_SECONDS: "3600"
+      REGISTRATION_BLOCK_SECONDS: "86400"
+      MAX_CONVERSATION_PENDING_ITEMS: "10"
+      MAX_ORGANIZATION_OUTSTANDING_ITEMS: "100"
+      MAX_ORGANIZATION_ACTIVE_ITEMS: "20"
+    networks: [edge, internal, database]
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.orchestrator.rule: Host(`${RELEASE_HOST:?RELEASE_HOST is required}`)
+      traefik.http.routers.orchestrator.entrypoints: websecure
+      traefik.http.routers.orchestrator.tls: "true"
+      traefik.http.services.orchestrator.loadbalancer.server.port: "8002"
+
+  transcription:
+    <<: *app
+    command: [uvicorn, transcription.main:app, --host, 0.0.0.0, --port, "8001", --workers, "1"]
+    environment:
+      <<: *app-env
+      GEMINI_API_KEY: ${GEMINI_API_KEY:?GEMINI_API_KEY is required}
+      GEMINI_MODEL: ${GEMINI_MODEL:?GEMINI_MODEL is required}
+      TRANSCRIPTION_DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+      BOT_TO_TRANSCRIPTION_TOKEN: ${BOT_TO_TRANSCRIPTION_TOKEN:?token is required}
+      MAX_UPLOAD_SIZE_MB: "25"
+      MAX_CONCURRENT_VALIDATIONS: "4"
+      MAX_PROVIDER_CONCURRENT_CALLS: "2"
+      PROVIDER_CAPACITY_ACQUIRE_TIMEOUT_SECONDS: "2"
+    networks: [internal, database]
+
+  bot-df:
+    <<: *app
+    command: [uvicorn, bot_df.main:app, --host, 0.0.0.0, --port, "8003"]
+    environment:
+      APP_ENV: ${APP_ENV:?APP_ENV is required}
+      ORCHESTRATOR_TO_BOT_TOKEN: ${ORCHESTRATOR_TO_BOT_TOKEN:?token is required}
+
+  db-writer:
+    <<: *app
+    command: [uvicorn, db_writer.main:app, --host, 0.0.0.0, --port, "8004"]
+    environment:
+      APP_ENV: ${APP_ENV:?APP_ENV is required}
+      DF_DATABASE_URL: ${DF_DATABASE_URL:?DF_DATABASE_URL is required}
+      DB_WRITER_INTERNAL_TOKEN: ${DB_WRITER_INTERNAL_TOKEN:?token is required}
+
+  wuzapi:
+    image: ${WUZAPI_IMAGE:?immutable WUZAPI_IMAGE is required}
+    restart: unless-stopped
+    environment:
+      WUZAPI_ADMIN_TOKEN: ${WUZAPI_ADMIN_TOKEN:?admin token is required}
+    networks: [internal]
+    read_only: true
+    tmpfs: [/tmp:rw,noexec,nosuid,nodev,size=64m]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+
+networks:
+  edge:
+    external: true
+    name: ${EDGE_NETWORK:?EDGE_NETWORK is required}
+  internal:
+    internal: true
+  database:
+    internal: true
+
+volumes:
+  platform-db-data:

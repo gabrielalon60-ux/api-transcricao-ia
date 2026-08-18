@@ -77,5 +77,8 @@ README.md
 install.sh
 update.sh
 docker-compose.yml
+deploy/
+tests/
+scripts/
 skills-lock.json
 .agents/

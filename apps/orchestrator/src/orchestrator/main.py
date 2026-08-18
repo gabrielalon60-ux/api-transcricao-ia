@@ -95,6 +95,7 @@ def extract_file_info(
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    get_settings().validate_environment()
     setup_logging()
     yield
 
@@ -610,6 +611,9 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
             user_id=user.id,
             file_info=file_info,
             max_queue_limit=settings.max_queue_items_per_conversation,
+            max_organization_outstanding_limit=(
+                settings.max_organization_outstanding_items
+            ),
         )
         return {
             "status": "ok",
@@ -677,6 +681,9 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
             secret_validator_fn=secret_validator,
             submitted_secret=submitted_secret,
             pepper=settings.registration_secret_pepper,
+            max_failed_attempts=settings.registration_max_failed_attempts,
+            window_seconds=settings.registration_window_seconds,
+            block_seconds=settings.registration_block_seconds,
         )
 
         if success:

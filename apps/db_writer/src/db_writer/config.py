@@ -16,7 +16,10 @@ class DBWriterSettings(BaseSettings):
         validation_alias=AliasChoices("DF_DATABASE_URL", "df_database_url"),
     )
     db_writer_internal_token: str = "dev-db-writer-token-secret-123"
-    environment: str = "development"
+    environment: str = Field(
+        default="development",
+        validation_alias=AliasChoices("APP_ENV", "ENVIRONMENT", "ENV", "environment"),
+    )
     allow_insecure_disposable_db: bool = False
     connect_timeout_seconds: int = 2
     lock_timeout_ms: int = 1000
@@ -33,12 +36,18 @@ class DBWriterSettings(BaseSettings):
         return v
 
     def validate_environment(self) -> None:
-        if (
-            self.environment != "development"
-            and self.db_writer_internal_token == "dev-db-writer-token-secret-123"
-        ):
+        environment = self.environment.strip().lower()
+        if environment not in {"development", "test", "staging", "production"}:
+            raise ValueError("environment must be development, test, staging, or production")
+        unsafe_protected_token = environment in {"staging", "production"} and (
+            len(self.db_writer_internal_token) < 32
+            or self.db_writer_internal_token
+            in {"dev-db-writer-token-secret-123", "placeholder", "change-me"}
+        )
+        if not self.database_url and unsafe_protected_token:
             raise ValueError(
-                "Default development token cannot be used in non-development environments."
+                "Default development token cannot be used in protected environments; "
+                "DB_WRITER_INTERNAL_TOKEN is not safely configured"
             )
         if not self.database_url:
             raise ValueError("DF_DATABASE_URL is required")
@@ -47,12 +56,17 @@ class DBWriterSettings(BaseSettings):
         except Exception as exc:
             raise ValueError("DF_DATABASE_URL is invalid") from exc
         sslmode = url.query.get("sslmode")
-        if self.environment in {"staging", "production"}:
+        if environment in {"staging", "production"}:
             if sslmode != "verify-full":
                 raise ValueError("DF_DATABASE_URL requires verify-full TLS")
         elif sslmode != "verify-full" and not self.allow_insecure_disposable_db:
             raise ValueError(
                 "Insecure database mode requires explicit disposable-test authorization"
+            )
+        if unsafe_protected_token:
+            raise ValueError(
+                "Default development token cannot be used in protected environments; "
+                "DB_WRITER_INTERNAL_TOKEN is not safely configured"
             )
 
     def connection_args(self) -> dict[str, object]:

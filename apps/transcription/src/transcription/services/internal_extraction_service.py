@@ -37,6 +37,8 @@ from transcription.services.prompt_service import PromptConfigurationError
 
 logger = get_logger(__name__)
 _validation_semaphore: asyncio.Semaphore | None = None
+_provider_semaphore: asyncio.Semaphore | None = None
+_provider_semaphore_limit: int | None = None
 
 
 @dataclass(frozen=True)
@@ -255,6 +257,24 @@ class InternalExtractionService:
         status_code = 500
         retry_after: int | None = None
         for attempt_number in range(1, max_attempts + 1):
+            semaphore = get_provider_semaphore(
+                self.settings.max_concurrent_provider_calls
+            )
+            try:
+                await asyncio.wait_for(
+                    semaphore.acquire(),
+                    timeout=self.settings.provider_acquisition_timeout_seconds,
+                )
+            except TimeoutError:
+                return (
+                    None,
+                    attempts,
+                    "PROVIDER_CAPACITY_EXCEEDED",
+                    True,
+                    503,
+                    1,
+                )
+
             started_at = _utcnow()
             try:
                 result = await asyncio.wait_for(
@@ -283,6 +303,9 @@ class InternalExtractionService:
                 )
                 if not retryable or attempt_number >= max_attempts:
                     break
+            finally:
+                semaphore.release()
+            if retryable and attempt_number < max_attempts:
                 await asyncio.sleep(min(0.1 * attempt_number, 0.5))
         return None, attempts, last_error, retryable, status_code, retry_after
 
@@ -471,6 +494,7 @@ def sanitize_error_code(error_code: str) -> str:
         "ANIMATED_IMAGE_UNSUPPORTED",
         "PROVIDER_TIMEOUT",
         "PROVIDER_RATE_LIMITED",
+        "PROVIDER_CAPACITY_EXCEEDED",
         "PROVIDER_TEMPORARY_ERROR",
         "PROVIDER_AUTH_ERROR",
         "PERSISTENCE_ERROR",
@@ -488,6 +512,7 @@ def http_status_for_error(error_code: str) -> int:
         "UPLOAD_READ_TIMEOUT": 408,
         "PROVIDER_TIMEOUT": 504,
         "PROVIDER_RATE_LIMITED": 503,
+        "PROVIDER_CAPACITY_EXCEEDED": 503,
         "PROVIDER_TEMPORARY_ERROR": 503,
         "PROVIDER_AUTH_ERROR": 502,
         "PERSISTENCE_ERROR": 500,
@@ -503,6 +528,7 @@ def is_retryable_error(error_code: str) -> bool:
         "UPLOAD_READ_TIMEOUT",
         "PROVIDER_TIMEOUT",
         "PROVIDER_RATE_LIMITED",
+        "PROVIDER_CAPACITY_EXCEEDED",
         "PROVIDER_TEMPORARY_ERROR",
     }
 
@@ -512,6 +538,19 @@ def get_validation_semaphore(max_concurrent_validations: int) -> asyncio.Semapho
     if _validation_semaphore is None:
         _validation_semaphore = asyncio.Semaphore(max_concurrent_validations)
     return _validation_semaphore
+
+
+def get_provider_semaphore(max_concurrent_provider_calls: int) -> asyncio.Semaphore:
+    global _provider_semaphore, _provider_semaphore_limit
+    if max_concurrent_provider_calls <= 0:
+        raise ValueError("max_concurrent_provider_calls must be positive")
+    if (
+        _provider_semaphore is None
+        or _provider_semaphore_limit != max_concurrent_provider_calls
+    ):
+        _provider_semaphore = asyncio.Semaphore(max_concurrent_provider_calls)
+        _provider_semaphore_limit = max_concurrent_provider_calls
+    return _provider_semaphore
 
 
 def _successful_attempt(

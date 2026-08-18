@@ -55,7 +55,7 @@ class GeminiProvider(AIProvider):
         )
 
         raw_text = response.text.strip() if response.text else ""
-        logger.debug(f"Gemini raw response: {raw_text[:200]}")
+        logger.debug("Gemini response received | response_length=%s", len(raw_text))
 
         data = self._parse_json(raw_text)
 
@@ -92,11 +92,9 @@ class GeminiProvider(AIProvider):
 
         try:
             return json.loads(cleaned)
-        except json.JSONDecodeError as e:
-            logger.error(
-                f"Failed to parse Gemini JSON response: {e}. Raw: {text[:300]}"
-            )
-            raise ValueError(f"AI returned invalid JSON: {e}") from e
+        except json.JSONDecodeError as exc:
+            logger.error("Failed to parse Gemini JSON response.")
+            raise ValueError("AI returned invalid JSON") from exc
 
     def _detect_mime(self, image_bytes: bytes) -> str:
         """Detect MIME type from magic bytes."""

@@ -1,4 +1,5 @@
 import logging
+import re
 import sys
 from transcription.core.config import get_settings
 
@@ -34,4 +35,21 @@ def sanitize_log_value(value: str | None) -> str:
     """
     if not value:
         return ""
-    return value.replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t")
+    sanitized = value.replace("\n", " ").replace("\r", " ").replace("\t", " ")
+    sanitized = re.sub(
+        r"(?i)(authorization|token|secret|api[_-]?key|password|dsn)\s*[:=]\s*[^\s,;]+",
+        r"\1=[REDACTED]",
+        sanitized,
+    )
+    sanitized = re.sub(
+        r"(?i)\bbearer\s+[A-Za-z0-9._~+/-]+=*",
+        "Bearer [REDACTED]",
+        sanitized,
+    )
+    sanitized = re.sub(
+        r"\b(?:postgres(?:ql)?|mysql|mariadb)://[^\s]+",
+        "[REDACTED_DSN]",
+        sanitized,
+        flags=re.IGNORECASE,
+    )
+    return re.sub(r"(?<!\d)\d{10,15}(?!\d)", "[REDACTED_PHONE]", sanitized)

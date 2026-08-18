@@ -70,8 +70,8 @@ class WhatsAppService:
         """
         try:
             await self._process(payload)
-        except Exception as exc:
-            logger.exception(f"Unexpected error in handle_webhook: {exc}")
+        except Exception:
+            logger.exception("Unexpected error in WhatsApp webhook handling.")
 
     # ------------------------------------------------------------------
     # Private pipeline
@@ -107,8 +107,8 @@ class WhatsAppService:
 
             try:
                 media_bytes = base64.b64decode(payload["base64"])
-            except Exception as e:
-                logger.exception(f"Failed to decode base64: {e}")
+            except Exception:
+                logger.exception("Failed to decode WhatsApp media payload.")
                 return
 
         else:
@@ -151,16 +151,14 @@ class WhatsAppService:
         mime_base = mime_type.split(";")[0].strip().lower()
 
         if mime_base not in SUPPORTED_MIMES:
-            logger.info(f"Unsupported MIME '{mime_base}' from {phone} — ignoring.")
+            logger.info("Unsupported WhatsApp media MIME; ignoring payload.")
             return
 
-        logger.info(
-            f"Supported media detected | type={msg_type} mime={mime_base} phone={phone}"
-        )
+        logger.info("Supported WhatsApp media detected | type=%s mime=%s", msg_type, mime_base)
 
         # ── 3. Download media (if WUZAPI) ────────────────────────────────
         if not is_evolution:
-            logger.info(f"Downloading media | message_id={message_id}")
+            logger.info("Downloading WhatsApp media.")
             try:
                 media_info_full = await self.wuzapi.get_media_info(message_id)
                 media_url = (
@@ -172,8 +170,8 @@ class WhatsAppService:
                     raise WuzapiError("WUZAPI returned no media URL.")
 
                 media_bytes = await self.wuzapi.download_media(media_url)
-            except WuzapiError as exc:
-                logger.exception(f"Media download failed: {exc}")
+            except WuzapiError:
+                logger.exception("WhatsApp media download failed.")
                 await self._safe_send(
                     phone,
                     "❌ Unable to download the received file.",
@@ -191,8 +189,8 @@ class WhatsAppService:
                 image_bytes=media_bytes,
                 image_filename=filename,
             )
-        except Exception as exc:
-            logger.exception(f"Extraction failed: {exc}")
+        except Exception:
+            logger.exception("WhatsApp media extraction failed.")
             await self._safe_send(
                 phone,
                 "❌ I couldn't process this document.\nPlease send a clear image or PDF.",
@@ -214,9 +212,9 @@ class WhatsAppService:
                 "• Electronic Invoice (NF-e)"
             )
 
-        logger.info(f"Sending WhatsApp response to {phone}")
+        logger.info("Sending WhatsApp response.")
         await self._safe_send(phone, text)
-        logger.info(f"Message sent to {phone}")
+        logger.info("WhatsApp response sent.")
 
     # ------------------------------------------------------------------
     # Helpers
@@ -226,5 +224,5 @@ class WhatsAppService:
         """Send a message, swallowing errors so the webhook never crashes."""
         try:
             await self.wuzapi.send_text_message(phone, text)
-        except WuzapiError as exc:
-            logger.exception(f"Failed to send WhatsApp reply to {phone}: {exc}")
+        except WuzapiError:
+            logger.exception("Failed to send WhatsApp reply.")

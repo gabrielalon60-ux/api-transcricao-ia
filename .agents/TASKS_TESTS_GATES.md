@@ -731,6 +731,24 @@ Final-review correction evidence (2026-08-15): the four P1 code blockers are cor
 
 ## GATE 10 — Segurança / Release
 
+Status: **G10-A IMPLEMENTED / LOCAL VERIFICATION PASSED / SECURITY AUDIT BLOCKED / CORRECTION DECISION REQUIRED**. Gate 9 is APPROVED / COMPLETE / PUSHED at `ef8551535f807fb231a841367cea8654cbed22a0`. G10-A was explicitly authorized and implemented on 2026-08-16. G10-B staging/VPS access, secret rotation, production adoption, tagging, deployment, G10-C, and Production Phase B remain NOT STARTED / NOT AUTHORIZED. `G10-APPROVED = false`.
+
+Planning package: `.agents/IMPLEMENTATION_PLAN_GATE_10.md`.
+
+Contract input template: `.agents/GATE_10_DECISIONS_REQUIRED.md`. Protected values are prohibited from Git/chat.
+
+Conservative contract closure: **G10-D01 through G10-D09 are CLOSED for local planning**. This closure freezes fail-closed repository behavior and owners while leaving protected/environment inputs deferred. Real schema/adoption, identifiers, infrastructure/WUZAPI/SSH/firewall inventories, secret-store inventory, staging resources/authorizations, and final release/rollback references continue to block their respective G10-B/G10-C actions. Values, credentials, keys, tokens, CPF/CNPJ, and client data must not be committed or pasted into governance.
+
+The first G10-A implementation-plan HOLD review failed on four P1 planning blockers. The correction pass changes registration abuse identity from unavailable end-user IP to durable `(organization_id, phone_number)`, preserves a separate edge per-IP limit, adds the minimal organization/provider-limit and Transcription-log source scope, freezes fail-closed vulnerability/secret audit policy, and adds dedicated disposable PostgreSQL evidence for G10-X14.
+
+G10-A maximum repository file scope is corrected and re-frozen in `.agents/IMPLEMENTATION_PLAN_GATE_10.md` for a repeated final read-only implementation-plan HOLD review. No G10-A implementation is authorized by planning, contract closure, or correction.
+
+The repeated G10-A HOLD review failed on four residual P1 planning blockers. Correction Pass 2 freezes exact outstanding/active status sets, Organization-row serialization and anti-starvation, one permit per physical provider attempt with bounded acquisition and zero usage before I/O, severity-specific vulnerability exception behavior, the required `queue_repository.py` scope, and an explicit task/test matrix separating G10-A local evidence from G10-B physical evidence and G10-C release closure.
+
+The final G10-A HOLD review passed and the user explicitly authorized local implementation on 2026-08-16. Primary G10 task/test checkboxes remain unchecked except where the matrix permits complete local acceptance; G10-A phase approval never implies `G10-APPROVED` or authorizes G10-B/G10-C.
+
+Execution is split into separately approved HOLDs: **G10-A** repository hardening only; **G10-B** staging adoption and physical security validation; **G10-C** production release. Approval of an earlier HOLD never authorizes a later one. Every Gate 10 task, security test, release-checklist item, and approval checkbox remains unchecked during planning/contract closure.
+
 ### Tasks
 - [ ] **G10-T01 P0** CPF/CNPJ reais.
 - [ ] **G10-T02 P0** Secrets novos de produção.
@@ -739,9 +757,9 @@ Final-review correction evidence (2026-08-15): the four P1 code blockers are cor
 - [ ] **G10-T05 P0** Restringir WUZAPI admin.
 - [ ] **G10-T06 P0** Restringir SSH.
 - [ ] **G10-T07 P0** Rate limits.
-- [ ] **G10-T08 P0** Dependency audit.
+- [x] **G10-T08 P0** Dependency audit.
 - [ ] **G10-T09 P0** Imagens Docker pinadas.
-- [ ] **G10-T10 P0** Container hardening.
+- [x] **G10-T10 P0** Container hardening.
 - [ ] **G10-T11 P0** Confirmar media retention WUZAPI.
 - [ ] **G10-T12 P0** Sanitização de logs.
 - [ ] **G10-T13 P0** Restore recente.
@@ -778,3 +796,15 @@ Final-review correction evidence (2026-08-15): the four P1 code blockers are cor
 - [ ] Tag de release.
 - [ ] Changelog.
 - [ ] **G10-APPROVED / FASE 1 RELEASED**
+
+### G10-A implementation evidence — 2026-08-16
+
+- Repository hardening implementation and applicable local/disposable verification completed inside the frozen G10-A path scope.
+- G10-A suite: **27 passed**, 0 skipped, 0 failed, 0 errors, including real non-root/read-only/capability-drop container build/runtime probes, PostgreSQL 15 organization capacity/anti-starvation, and disposable least-privilege evidence.
+- Regression evidence: Gates 1–3 **90 passed**; Gate 4 unit **68 passed** with 12 environment-dependent skips; clean Gate 4 PostgreSQL **126 passed**; Gates 5–7/9 unit **227 passed** with 1 environment-dependent skip; Gates 6–8 PostgreSQL/E2E **135 passed**.
+- Static evidence: compileall PASS; Ruff PASS; targeted mypy PASS.
+- Concurrency correction: the first full Gate 4 PostgreSQL run found an Organization-lock/FK deadlock. `FOR NO KEY UPDATE` now serializes organization allocation without conflicting with inbound Event FK locks; the focused race passed three consecutive runs and the clean full Gate 4 PostgreSQL suite passed.
+- Secret audit: pinned Gitleaks physically completed against full history and exactly the Git-tracked plus non-ignored untracked release-candidate worktree. Five historical and three worktree fixture/documentation matches are disposed only by exact fingerprint/path/rule/reviewer/reason; ignored local `.env`/virtual environments are excluded by Git scope, not a secret allowlist; zero unresolved secret findings remain.
+- Vulnerability audit: **PASSED**. `pypdf` upgraded to `6.16.1` (resolving `CVE-2026-71852`/`CVE-2026-71870` Medium); unused `python-jose` dependency removed (resolving `CVE-2024-23342` High / `ecdsa 0.19.2`). Trivy scan: 0 vulnerabilities. G10-T08 local implementation complete. G10-A APPROVED / COMPLETE LOCALLY by explicit user decision on 2026-08-17.
+- `G10-APPROVED=false`; G10-B/G10-C, staging/VPS, production, migrations, real secrets/identifiers, tag, deployment, and Production Phase B remain unauthorized/unstarted.
+- Cleanup: after Docker Desktop stabilized, the invocation-owned PostgreSQL regression container `gate10-regression-postgres-20260816` was removed. All G10 test/evidence directories under `C:\tmp` and orphaned pytest/uv/python test processes were also removed.

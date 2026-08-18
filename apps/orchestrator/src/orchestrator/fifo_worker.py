@@ -399,6 +399,7 @@ def run_fifo_worker_loop(
     )
 
     settings = get_settings()
+    settings.validate_environment()
     engine = create_engine(settings.database_url)
     SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 

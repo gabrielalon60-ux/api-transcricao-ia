@@ -1,5 +1,5 @@
-import hmac
 import hashlib
+import hmac
 
 
 def hash_secret(secret: str, salt: str) -> str:

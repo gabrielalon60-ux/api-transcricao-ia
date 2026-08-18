@@ -1,23 +1,37 @@
-name: Deploy Oracle
+name: Release deployment
 
 on:
-  push:
-    branches:
-      - main
+  workflow_dispatch:
+    inputs:
+      release_image:
+        description: Immutable application image (name@sha256:digest)
+        required: true
+      release_commit:
+        description: Full approved Git commit SHA
+        required: true
+      authorization_reference:
+        description: Approved G10-C authorization reference
+        required: true
+
+concurrency:
+  group: production-release
+  cancel-in-progress: false
+permissions:
+  contents: read
 
 jobs:
-  deploy:
+  validate-release-request:
     runs-on: ubuntu-latest
-
+    environment: production
     steps:
-      - name: Deploy na Oracle
-        uses: appleboy/ssh-action@v1.2.2
-        with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USER }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          script_stop: true
-          script: |
-            cd ~/services/api-transcricao
-            chmod +x update.sh
-            ./update.sh
+      - name: Validate immutable release identity
+        env:
+          RELEASE_IMAGE: ${{ inputs.release_image }}
+          RELEASE_COMMIT: ${{ inputs.release_commit }}
+          AUTHORIZATION_REFERENCE: ${{ inputs.authorization_reference }}
+        run: |
+          set -Eeuo pipefail
+          [[ "$RELEASE_IMAGE" =~ ^[^[:space:]]+@sha256:[0-9a-f]{64}$ ]]
+          [[ "$RELEASE_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+          [[ -n "$AUTHORIZATION_REFERENCE" ]]
+          echo "Release request validated; remote deployment remains environment-controlled."

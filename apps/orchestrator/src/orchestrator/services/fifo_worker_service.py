@@ -11,6 +11,7 @@ import sqlalchemy as sa
 
 from db.models import (
     EnterpriseCommandSession,
+    Organization,
     ProcessingItem,
     Execution,
     UserAnswer,
@@ -98,7 +99,10 @@ def is_conversation_blocked(
 
 
 def claim_next_ready_item(
-    db: Session, worker_id: str = "worker-1"
+    db: Session,
+    worker_id: str = "worker-1",
+    max_organization_active_items: int = 20,
+    max_candidate_scan: int = 100,
 ) -> Optional[ProcessingItem]:
     """Atomically claims the globally oldest eligible READY item for business execution.
 
@@ -112,6 +116,8 @@ def claim_next_ready_item(
       - Ordered by message_received_at ASC, organization_id ASC, instance_id ASC, user_id ASC, sequence ASC.
     """
     full_worker_id = _normalize_worker_id(worker_id)
+    if max_organization_active_items <= 0 or max_candidate_scan <= 0:
+        raise ValueError("Organization claim limits must be positive")
 
     # Subquery 1: Check for any blocking item in same conversation
     BlockingItem = sa.orm.aliased(ProcessingItem)
@@ -152,28 +158,60 @@ def claim_next_ready_item(
         .exists()
     )
 
-    # Combined candidate query pushing all eligibility rules into SQL
-    candidate = (
-        db.query(ProcessingItem)
-        .filter(
+    candidate: ProcessingItem | None = None
+    excluded_organizations: set[str] = set()
+    for _ in range(max_candidate_scan):
+        query = db.query(ProcessingItem).filter(
             ProcessingItem.status == "READY",
             ProcessingItem.sequence.isnot(None),
             ~blocking_subquery,
             ~command_barrier,
             ~earlier_subquery,
         )
-        .order_by(
-            ProcessingItem.message_received_at.asc(),
-            ProcessingItem.organization_id.asc(),
-            ProcessingItem.instance_id.asc(),
-            ProcessingItem.user_id.asc(),
-            ProcessingItem.sequence.asc(),
+        if excluded_organizations:
+            query = query.filter(
+                ProcessingItem.organization_id.not_in(excluded_organizations)
+            )
+        candidate = (
+            query.order_by(
+                ProcessingItem.message_received_at.asc(),
+                ProcessingItem.organization_id.asc(),
+                ProcessingItem.instance_id.asc(),
+                ProcessingItem.user_id.asc(),
+                ProcessingItem.sequence.asc(),
+            )
+            .with_for_update(skip_locked=True, key_share=True)
+            .first()
         )
-        .with_for_update(skip_locked=True)
-        .first()
-    )
+        if candidate is None:
+            return None
 
-    if not candidate:
+        organization = (
+            db.query(Organization)
+            .filter(Organization.id == candidate.organization_id)
+            .with_for_update(skip_locked=True)
+            .first()
+        )
+        if organization is None:
+            excluded_organizations.add(candidate.organization_id)
+            candidate = None
+            continue
+        active_count = (
+            db.query(sa.func.count(ProcessingItem.id))
+            .filter(
+                ProcessingItem.organization_id == organization.id,
+                ProcessingItem.status.in_(BLOCKING_STATES),
+            )
+            .scalar()
+            or 0
+        )
+        if active_count >= max_organization_active_items:
+            excluded_organizations.add(organization.id)
+            candidate = None
+            continue
+        break
+
+    if candidate is None:
         return None
     assert candidate.sequence is not None
 

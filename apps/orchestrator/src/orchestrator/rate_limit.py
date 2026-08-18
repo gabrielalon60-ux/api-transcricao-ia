@@ -14,6 +14,9 @@ def check_and_record_registration(
     secret_validator_fn,
     submitted_secret: str,
     pepper: str,
+    max_failed_attempts: int = 3,
+    window_seconds: int = 300,
+    block_seconds: int = 300,
 ) -> tuple[bool, str, str | None]:
     """
     Checks rate limits, validates secret, and updates operational and audit tables.
@@ -75,17 +78,11 @@ def check_and_record_registration(
     if blocked_until and blocked_until.tzinfo is None:
         blocked_until = blocked_until.replace(tzinfo=timezone.utc)
 
-    # Reset window if > 5 minutes elapsed
-    if now_dt - window_started > timedelta(minutes=5):
-        rate_limit.failure_count = 0
-        rate_limit.window_started_at = now_dt
-        window_started = now_dt
-        rate_limit.blocked_until = None
-        blocked_until = None
+    if max_failed_attempts <= 0 or window_seconds <= 0 or block_seconds <= 0:
+        raise ValueError("Registration rate-limit values must be positive")
 
-    # Check if currently blocked
+    # A live block always wins over window rollover.
     if blocked_until and blocked_until > now_dt:
-        # Record blocked attempt in audit
         attempt = RegistrationAttempt(
             organization_id=organization_id,
             instance_id=instance_id,
@@ -97,9 +94,17 @@ def check_and_record_registration(
         db.add(attempt)
         return (
             False,
-            "⚠️ Muitas tentativas de cadastro foram realizadas.\n\nAguarde alguns minutos antes de tentar novamente.",
+            "⚠️ Muitas tentativas de cadastro foram realizadas.\n\nTente novamente mais tarde.",
             "REGISTRATION_RATE_LIMITED",
         )
+
+    # Expired blocks and anchored windows begin a fresh window.
+    if blocked_until or now_dt - window_started >= timedelta(seconds=window_seconds):
+        rate_limit.failure_count = 0
+        rate_limit.window_started_at = now_dt
+        window_started = now_dt
+        rate_limit.blocked_until = None
+        blocked_until = None
 
     # Validate the secret (only when not blocked)
     is_valid = secret_validator_fn(submitted_secret)
@@ -124,13 +129,13 @@ def check_and_record_registration(
             None,
         )
     else:
-        # Failure path: increment counts, block on 3rd failure
+        # Failure path: increment counts and block at the configured threshold.
         rate_limit.failure_count += 1
         rate_limit.updated_at = now_dt
 
         reason = "INVALID_REGISTRATION_SECRET"
-        if rate_limit.failure_count >= 3:
-            rate_limit.blocked_until = now_dt + timedelta(minutes=5)
+        if rate_limit.failure_count >= max_failed_attempts:
+            rate_limit.blocked_until = now_dt + timedelta(seconds=block_seconds)
             reason = "REGISTRATION_RATE_LIMITED"
 
         attempt = RegistrationAttempt(
@@ -143,10 +148,10 @@ def check_and_record_registration(
         )
         db.add(attempt)
 
-        if rate_limit.failure_count >= 3:
+        if rate_limit.failure_count >= max_failed_attempts:
             return (
                 False,
-                "⚠️ Muitas tentativas de cadastro foram realizadas.\n\nAguarde alguns minutos antes de tentar novamente.",
+                "⚠️ Muitas tentativas de cadastro foram realizadas.\n\nTente novamente mais tarde.",
                 "REGISTRATION_RATE_LIMITED",
             )
         else:

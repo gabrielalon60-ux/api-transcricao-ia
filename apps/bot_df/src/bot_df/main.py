@@ -10,9 +10,22 @@ from observability.middleware import CorrelationIdMiddleware
 logger = logging.getLogger(__name__)
 
 
+def _environment() -> str:
+    return os.environ.get("APP_ENV", os.environ.get("ENV", "development")).strip().lower()
+
+
+def _configured_token() -> str:
+    token = os.environ.get("ORCHESTRATOR_TO_BOT_TOKEN", "").strip()
+    if _environment() in {"staging", "production"}:
+        if len(token) < 32 or token in {"placeholder_bearer_token", "change-me"}:
+            raise RuntimeError("ORCHESTRATOR_TO_BOT_TOKEN is not safely configured")
+    return token or "placeholder_bearer_token"
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     setup_logging()
+    _configured_token()
     yield
 
 
@@ -22,7 +35,11 @@ app.add_middleware(CorrelationIdMiddleware)
 
 # Token auth dependency
 def verify_bearer_token(authorization: str = Header(None)):
-    token = os.environ.get("ORCHESTRATOR_TO_BOT_TOKEN", "placeholder_bearer_token")
+    try:
+        token = _configured_token()
+    except RuntimeError as exc:
+        logger.error("Bot DF authentication is not safely configured.")
+        raise HTTPException(status_code=503, detail="Service unavailable") from exc
     if not authorization or not authorization.startswith("Bearer "):
         logger.warning("Bot DF: Missing or malformed authorization header.")
         raise HTTPException(status_code=401, detail="Unauthorized")

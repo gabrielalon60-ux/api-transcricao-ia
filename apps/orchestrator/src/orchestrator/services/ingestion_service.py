@@ -11,6 +11,8 @@ from db.models import Event, ProcessingItem, Execution
 from orchestrator.payload import compute_payload_hash, is_payload_mutated
 from orchestrator.repositories.queue_repository import (
     get_non_terminal_capacity_count,
+    get_organization_outstanding_count,
+    lock_organization,
     lock_or_create_conversation_counter,
     allocate_next_sequence,
     create_processable_processing_item,
@@ -41,6 +43,7 @@ def ingest_event_transaction(
     user_id: str,
     file_info: Dict[str, Any],
     max_queue_limit: int = 10,
+    max_organization_outstanding_limit: int = 100,
 ) -> IngestionResult:
     """Orchestrates single-transaction event ingestion into persistent FIFO queue."""
     current_payload_hash = compute_payload_hash(file_info)
@@ -103,7 +106,29 @@ def ingest_event_transaction(
             sequence=existing_item.sequence,
         )
 
-    # 3. Race-safe Capacity Check & Counter Locking
+    # 3. Race-safe organization and conversation capacity checks.
+    lock_organization(db, organization_id)
+    organization_outstanding = get_organization_outstanding_count(
+        db, organization_id
+    )
+    if organization_outstanding >= max_organization_outstanding_limit:
+        item = create_capacity_rejected_processing_item(
+            db=db,
+            event=target_evt,
+            organization_id=organization_id,
+            instance_id=instance_id,
+            user_id=user_id,
+            file_info=file_info,
+            error_code="ORGANIZATION_CAPACITY_EXCEEDED",
+            error_message="Organization processing capacity limit reached",
+        )
+        db.commit()
+        return IngestionResult(
+            outcome=IngestionOutcome.CAPACITY_REJECTED,
+            item=item,
+            sequence=None,
+        )
+
     lock_or_create_conversation_counter(db, organization_id, instance_id, user_id)
 
     current_active_count = get_non_terminal_capacity_count(

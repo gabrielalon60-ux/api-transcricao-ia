@@ -5,7 +5,7 @@ from typing import Any, Dict
 from sqlalchemy.orm import Session
 import sqlalchemy as sa
 
-from db.models import ConversationQueueCounter, ProcessingItem, Event
+from db.models import ConversationQueueCounter, Event, Organization, ProcessingItem
 
 
 TERMINAL_STATUSES = (
@@ -29,6 +29,32 @@ def get_non_terminal_capacity_count(
             ProcessingItem.organization_id == organization_id,
             ProcessingItem.instance_id == instance_id,
             ProcessingItem.user_id == user_id,
+            ProcessingItem.status.notin_(TERMINAL_STATUSES),
+        )
+        .scalar()
+        or 0
+    )
+
+
+def lock_organization(db: Session, organization_id: str) -> Organization:
+    organization = (
+        db.query(Organization)
+        .filter(Organization.id == organization_id)
+        # FOR NO KEY UPDATE serializes allocation but remains compatible with
+        # the FK KEY SHARE lock taken when the inbound Event is flushed first.
+        .with_for_update(key_share=True)
+        .first()
+    )
+    if organization is None:
+        raise RuntimeError("Organization does not exist")
+    return organization
+
+
+def get_organization_outstanding_count(db: Session, organization_id: str) -> int:
+    return (
+        db.query(sa.func.count(ProcessingItem.id))
+        .filter(
+            ProcessingItem.organization_id == organization_id,
             ProcessingItem.status.notin_(TERMINAL_STATUSES),
         )
         .scalar()
@@ -120,6 +146,9 @@ def create_capacity_rejected_processing_item(
     instance_id: str,
     user_id: str,
     file_info: Dict[str, Any],
+    *,
+    error_code: str = "QUEUE_CAPACITY_EXCEEDED",
+    error_message: str = "Queue capacity limit reached for this conversation",
 ) -> ProcessingItem:
     """Creates a capacity-rejected ProcessingItem with sequence=NULL, status='FAILED', error_code='QUEUE_CAPACITY_EXCEEDED'."""
     item = ProcessingItem(
@@ -131,8 +160,8 @@ def create_capacity_rejected_processing_item(
         user_id=user_id,
         sequence=None,
         status="FAILED",
-        error_code="QUEUE_CAPACITY_EXCEEDED",
-        error_message_sanitized="Queue capacity limit reached for this conversation",
+        error_code=error_code,
+        error_message_sanitized=error_message,
         message_received_at=event.received_at,
         file_mime_type=file_info.get("file_mime_type", "application/octet-stream"),
         file_size=file_info.get("file_size", 0),
