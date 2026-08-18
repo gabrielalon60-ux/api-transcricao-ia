@@ -24,7 +24,7 @@ All staging, VPS, Dokploy, Traefik edge, and production infrastructure remain **
 |---|---|---|---|
 | **P1** | Offline Harness & Preflight Validation | **COMPLETE** | `python scripts/operations/gate10_b1_e2e_runner.py preflight` |
 | **P2** | Stack Preparation & Startup | **HOLD** | `$env:G10_B1_AUTHORIZED_PHASE="P2"`; `prepare-wuzapi`, `up`, `bootstrap` |
-| **P3** | Human QR Code Scan & Session Auth | **HUMAN CHECKPOINT** | Operator scans QR code via `http://127.0.0.1:8080/session/qr` using physical test SIM |
+| **P3** | Human QR Code Scan & Session Auth | **HUMAN CHECKPOINT** | Operator scans QR code via `http://127.0.0.1:18080/session/qr` using physical test SIM |
 | **P4** | Real Inbound/Outbound Text Smoke Test | **HOLD** | Operator sends "Oi" from test WhatsApp; verifies reply |
 | **P5** | Real Media + Gemini Expense Happy Path | **HOLD** | Operator sends 1 PDF expense receipt; verifies `✅ Gravado com sucesso.` (Max 5 Gemini calls) |
 | **P6** | Clarification Loops & `/empreendimento` | **HOLD** | Operator tests direction/amount prompt & `/empreendimento` command |

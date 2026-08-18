@@ -45,12 +45,21 @@ def test_invariant_a_network_egress_allowed():
 
 @pytest.mark.real_e2e
 def test_invariant_b_prohibited_service_host_ports_absent():
-    # B. No prohibited service host ports
+    # B. No prohibited service host ports, exact loopback bindings for WUZAPI and Orchestrator
     content = COMPOSE_FILE.read_text(encoding="utf-8")
     assert "5432:5432" not in content, "Postgres host port must not be published"
     assert "8001:8001" not in content, "Transcription host port must not be published"
     assert "8004:8004" not in content, "Writer host port must not be published"
     assert "8003:8003" not in content, "Bot DF host port must not be published"
+
+    # Exact loopback host port bindings
+    assert '127.0.0.1:18080:8080' in content, "WUZAPI must be bound to 127.0.0.1:18080:8080"
+    assert '127.0.0.1:18000:8000' in content, "Orchestrator must be bound to 127.0.0.1:18000:8000"
+    assert '0.0.0.0:18080' not in content and '0.0.0.0:18000' not in content
+    assert '[::]:18080' not in content and '[::]:18000' not in content
+
+    # Internal webhook contract unchanged
+    assert 'WUZAPI_GLOBAL_WEBHOOK: "http://orchestrator:8000/webhook"' in content
 
 
 @pytest.mark.real_e2e
