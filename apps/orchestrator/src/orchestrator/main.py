@@ -29,25 +29,36 @@ logger = logging.getLogger(__name__)
 def extract_file_info(
     payload: dict, message_type: str, text_content: str | None
 ) -> dict:
-    data = payload.get("data") or {}
-    message = data.get("message") or {}
-    if not message and "messages" in data:
-        message = data["messages"][0] if data["messages"] else {}
+    p_data = payload.get("data")
+    data: dict = p_data if isinstance(p_data, dict) else {}
+    p_msg = data.get("message")
+    message: dict = p_msg if isinstance(p_msg, dict) else {}
+    p_msgs = data.get("messages")
+    if not message and isinstance(p_msgs, list) and p_msgs:
+        first = p_msgs[0]
+        if isinstance(first, dict):
+            message = first
 
     mime_type = "text/plain" if message_type == "text" else "image/jpeg"
     file_size = 0
     file_sha256 = None
     original_filename = None
 
-    if "imageMessage" in message:
-        img = message["imageMessage"]
-        mime_type = img.get("mimetype") or "image/jpeg"
-        file_size = img.get("fileLength") or img.get("fileSizeBytes") or 0
+    p_img_msg = message.get("imageMessage")
+    p_img_data = data.get("imageMessage")
+    img: dict = p_img_msg if isinstance(p_img_msg, dict) else (p_img_data if isinstance(p_img_data, dict) else {})
+
+    p_doc_msg = message.get("documentMessage")
+    p_doc_data = data.get("documentMessage")
+    doc: dict = p_doc_msg if isinstance(p_doc_msg, dict) else (p_doc_data if isinstance(p_doc_data, dict) else {})
+
+    if img:
+        mime_type = str(img.get("mimetype") or "image/jpeg")
+        file_size = int(img.get("fileLength") or img.get("fileSizeBytes") or 0)
         file_sha256 = img.get("fileSha256") or img.get("fileHash")
-    elif "documentMessage" in message:
-        doc = message["documentMessage"]
-        mime_type = doc.get("mimetype") or "application/pdf"
-        file_size = doc.get("fileLength") or doc.get("fileSizeBytes") or 0
+    elif doc:
+        mime_type = str(doc.get("mimetype") or "application/pdf")
+        file_size = int(doc.get("fileLength") or doc.get("fileSizeBytes") or 0)
         file_sha256 = doc.get("fileSha256") or doc.get("fileHash")
         original_filename = doc.get("fileName") or doc.get("title")
     elif payload.get("file_sha256"):
@@ -56,17 +67,30 @@ def extract_file_info(
         mime_type = payload.get("file_mime_type", mime_type)
         original_filename = payload.get("original_filename")
 
+    raw_inst = payload.get("instanceId") or data.get("instanceId")
+    if not raw_inst:
+        raw_inst_obj = payload.get("instance")
+        if isinstance(raw_inst_obj, dict):
+            raw_inst = raw_inst_obj.get("external_id")
+        elif isinstance(raw_inst_obj, str):
+            raw_inst = raw_inst_obj
+    ext_inst_id = str(raw_inst) if isinstance(raw_inst, str) and raw_inst.strip() else "inst-1"
+
+    p_key = message.get("key")
+    key: dict = p_key if isinstance(p_key, dict) else {}
+    raw_msg_id = key.get("id") or data.get("id") or payload.get("external_message_id")
+    ext_msg_id = str(raw_msg_id) if isinstance(raw_msg_id, str) and raw_msg_id.strip() else "msg-1"
+
     media_ref = None
     if message_type in ("image", "pdf"):
-        media_msg = message.get("imageMessage") or message.get("documentMessage") or {}
-        direct_path = media_msg.get("directPath") or media_msg.get("direct_path")
+        media_msg = img if message_type == "image" else doc
+        direct_path = media_msg.get("directPath") or media_msg.get("direct_path") if isinstance(media_msg, dict) else None
 
         media_ref = {
             "version": "1.0",
             "provider": payload.get("provider", "WUZAPI"),
-            "external_instance_id": payload.get("instanceId") or data.get("instanceId"),
-            "external_message_id": (message.get("key") or {}).get("id")
-            or payload.get("external_message_id"),
+            "external_instance_id": ext_inst_id,
+            "external_message_id": ext_msg_id,
             "direct_path": direct_path,
             "expected_sha256": file_sha256,
             "expected_size": file_size,
@@ -79,10 +103,8 @@ def extract_file_info(
 
     return {
         "provider": payload.get("provider") or "WUZAPI",
-        "external_instance_id": payload.get("instanceId") or "inst-1",
-        "external_message_id": (message.get("key") or {}).get("id")
-        or payload.get("external_message_id")
-        or "msg-1",
+        "external_instance_id": ext_inst_id,
+        "external_message_id": ext_msg_id,
         "message_type": message_type,
         "file_mime_type": mime_type,
         "file_size": int(file_size),
@@ -189,31 +211,56 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
         text_content = payload.get("text")
     else:
         # Standard WUZAPI format
-        external_instance_id = payload.get("instanceId")
-        data = payload.get("data") or {}
-        message = data.get("message") or {}
-        if not message and "messages" in data:
-            message = data["messages"][0] if data["messages"] else {}
+        p_data = payload.get("data")
+        data: dict = p_data if isinstance(p_data, dict) else {}
+        p_msg = data.get("message")
+        message: dict = p_msg if isinstance(p_msg, dict) else {}
+        p_msgs = data.get("messages")
+        if not message and isinstance(p_msgs, list) and p_msgs:
+            first = p_msgs[0]
+            if isinstance(first, dict):
+                message = first
 
-        if not external_instance_id:
-            external_instance_id = data.get("instanceId") or payload.get(
-                "instance", {}
-            ).get("external_id")
+        # Resolve instance ID
+        raw_inst = payload.get("instanceId") or data.get("instanceId")
+        if not raw_inst:
+            raw_inst_obj = payload.get("instance")
+            if isinstance(raw_inst_obj, dict):
+                raw_inst = raw_inst_obj.get("external_id")
+            elif isinstance(raw_inst_obj, str):
+                raw_inst = raw_inst_obj
+        external_instance_id = str(raw_inst) if isinstance(raw_inst, str) and raw_inst.strip() else None
 
-        key = message.get("key", {})
-        external_message_id = key.get("id")
-        sender_phone_raw = key.get("remoteJid") or payload.get("sender") or ""
+        # Resolve message ID
+        p_key = message.get("key")
+        key: dict = p_key if isinstance(p_key, dict) else {}
+        raw_msg_id = key.get("id") or data.get("id") or payload.get("external_message_id")
+        external_message_id = str(raw_msg_id) if isinstance(raw_msg_id, str) and raw_msg_id.strip() else None
+
+        # Resolve sender phone / JID
+        raw_sender = (
+            key.get("remoteJid")
+            or data.get("sender")
+            or data.get("chat")
+            or payload.get("sender")
+        )
+        sender_phone_raw = str(raw_sender) if isinstance(raw_sender, str) else ""
 
         # Determine message type
-        if "imageMessage" in message:
+        if "imageMessage" in message or "imageMessage" in data:
             message_type = "image"
-        elif "documentMessage" in message:
+        elif "documentMessage" in message or "documentMessage" in data:
             message_type = "pdf"
         else:
             message_type = "text"
-            text_content = message.get("conversation") or message.get(
-                "extendedTextMessage", {}
-            ).get("text")
+            p_ext_msg = message.get("extendedTextMessage")
+            ext_text = p_ext_msg.get("text") if isinstance(p_ext_msg, dict) else None
+            text_content = (
+                message.get("conversation")
+                or ext_text
+                or data.get("text")
+                or payload.get("text")
+            )
 
     if not provider or not external_instance_id or not external_message_id:
         logger.warning(
