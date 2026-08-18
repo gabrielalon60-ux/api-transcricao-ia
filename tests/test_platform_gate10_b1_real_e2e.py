@@ -132,3 +132,21 @@ def test_invariant_k_gemini_max_call_contract():
     # K. Gemini max contract remains 5
     MAX_GEMINI_CALLS_CONTRACT = 5
     assert MAX_GEMINI_CALLS_CONTRACT == 5
+
+
+@pytest.mark.real_e2e
+def test_invariant_l_df_holding_identifiers_valid_json_array():
+    # L. DF_HOLDING_IDENTIFIERS must be valid JSON array of strings
+    import json
+    content = COMPOSE_FILE.read_text(encoding="utf-8")
+    for line in content.splitlines():
+        if "DF_HOLDING_IDENTIFIERS:" in line:
+            raw_val = line.split("DF_HOLDING_IDENTIFIERS:", 1)[1].strip().strip("'\"")
+            parsed = json.loads(raw_val)
+            assert isinstance(parsed, list), "DF_HOLDING_IDENTIFIERS must be a JSON array"
+            assert all(isinstance(x, str) for x in parsed), "All items must be strings"
+            assert len(parsed) >= 1, "Must contain at least 1 synthetic identifier"
+            assert all(x.isdigit() for x in parsed), "Identifiers must be digit strings"
+            break
+    else:
+        pytest.fail("DF_HOLDING_IDENTIFIERS not found in compose.g10b1.yml")
