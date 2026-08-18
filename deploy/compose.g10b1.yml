@@ -22,7 +22,7 @@ services:
       - no-new-privileges:true
 
   wuzapi:
-    image: g10b1-wuzapi:42c38d38e2195f00e30e10ec85871fbd48512dd9
+    image: g10b1-wuzapi:9487eca9a40f292d19953a44983979c85d91ccce
     container_name: g10b1_wuzapi
     restart: unless-stopped
     ports:
@@ -32,7 +32,7 @@ services:
       WUZAPI_ADMIN_TOKEN: ${G10_B1_WUZAPI_TOKEN:?WUZAPI token required}
       WUZAPI_GLOBAL_HMAC_KEY: ${G10_B1_WUZAPI_WEBHOOK_SECRET:?Webhook secret required}
       WEBHOOK_FORMAT: "json"
-      WUZAPI_WEBHOOK_URL: "http://orchestrator:8000/webhook"
+      WUZAPI_GLOBAL_WEBHOOK: "http://orchestrator:8000/webhook"
     volumes:
       - g10b1_wuzapi_data:/app/db
     networks:

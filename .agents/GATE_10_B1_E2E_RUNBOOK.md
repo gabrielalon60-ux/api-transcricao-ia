@@ -9,7 +9,7 @@
 ## Executive Summary
 
 Gate 10-B1 validates the application's real messaging integration locally using:
-- A real WUZAPI instance running in local Docker (built from exact pinned commit `42c38d38e2195f00e30e10ec85871fbd48512dd9`);
+- A real WUZAPI instance running in local Docker (built from exact pinned commit `9487eca9a40f292d19953a44983979c85d91ccce`);
 - A dedicated WhatsApp test number owned by the tester;
 - Real Gemini document extraction (bounded to max 5 physical calls);
 - Local disposable PostgreSQL databases (`g10b1_postgres`).
@@ -38,7 +38,7 @@ All staging, VPS, Dokploy, Traefik edge, and production infrastructure remain **
 
 - `down`: Stops `g10b1_` containers and networks while **PRESERVING** session and data volumes (`g10b1_wuzapi_data`, `g10b1_postgres_data`). Safe for restart tests without losing QR login.
 - `cleanup`: Destructively stops containers and removes owned volumes (`docker compose -p g10b1 down -v`).
-- `prepare-wuzapi`: Clones `asternic/wuzapi` commit `42c38d38e2195f00e30e10ec85871fbd48512dd9` and builds local image `g10b1-wuzapi:42c38d38e2195f00e30e10ec85871fbd48512dd9`.
+- `prepare-wuzapi`: Clones `asternic/wuzapi` commit `9487eca9a40f292d19953a44983979c85d91ccce` and builds local image `g10b1-wuzapi:9487eca9a40f292d19953a44983979c85d91ccce`.
 
 ---
 

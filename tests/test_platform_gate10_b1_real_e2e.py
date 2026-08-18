@@ -55,10 +55,10 @@ def test_invariant_b_prohibited_service_host_ports_absent():
 
 @pytest.mark.real_e2e
 def test_invariant_c_wuzapi_local_prepared_image_tag():
-    # C. WUZAPI Compose image references deterministic prepared local image
+    # C. WUZAPI Compose image references deterministic prepared local image (v1.0.8 commit 9487eca9a40f292d19953a44983979c85d91ccce)
     content = COMPOSE_FILE.read_text(encoding="utf-8")
-    assert "image: g10b1-wuzapi:42c38d38e2195f00e30e10ec85871fbd48512dd9" in content
-    assert "asternic/wuzapi:42c38d38e2195f00e30e10ec85871fbd48512dd9" not in content
+    assert "image: g10b1-wuzapi:9487eca9a40f292d19953a44983979c85d91ccce" in content
+    assert "asternic/wuzapi:9487eca9a40f292d19953a44983979c85d91ccce" not in content
 
 
 @pytest.mark.real_e2e

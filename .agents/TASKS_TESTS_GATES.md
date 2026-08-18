@@ -731,7 +731,7 @@ Final-review correction evidence (2026-08-15): the four P1 code blockers are cor
 
 ## GATE 10 — Segurança / Release
 
-Status: **G10-A APPROVED / COMPLETE LOCALLY; G10-B1 P1 OFFLINE VERIFICATION COMPLETE / USER APPROVAL / GIT CLOSURE HOLD**. Gate 9 is APPROVED / COMPLETE / PUSHED at `ef8551535f807fb231a841367cea8654cbed22a0`. G10-A was explicitly authorized, implemented, and pushed at `11ddd51cc96a9ad3ac16e3b5971bf41293289e57`. G10-B1 parser compatibility was committed and pushed at `4f265eb001844eac269a066109f4e8a662716e32`. G10-B1 harness P1 offline implementation and correction pass are complete. G10-B1 P2–P9 execution, G10-B2 staging/VPS access, secret rotation, production adoption, tagging, deployment, G10-C, and Production Phase B remain NOT STARTED / NOT AUTHORIZED. `G10-APPROVED = false`.
+Status: **G10-A APPROVED / COMPLETE LOCALLY; G10-B1 P1 PUSHED; G10-B1 P2 BLOCKED ON WUZAPI CLIENT SOURCE COMPATIBILITY**. Gate 9 is APPROVED / COMPLETE / PUSHED at `ef8551535f807fb231a841367cea8654cbed22a0`. G10-A was explicitly authorized, implemented, and pushed at `11ddd51cc96a9ad3ac16e3b5971bf41293289e57`. G10-B1 parser compatibility was committed and pushed at `4f265eb001844eac269a066109f4e8a662716e32`. G10-B1 harness P1 was committed and pushed at `47c69bb76b549893991134276651614cebbb42be`. G10-B1 P2 WUZAPI pin was corrected to release `v1.0.8` commit `9487eca9a40f292d19953a44983979c85d91ccce`. G10-B1 P2 execution is BLOCKED on Transcription media-client source compatibility adaptation. G10-B2 staging/VPS access, secret rotation, production adoption, tagging, deployment, G10-C, and Production Phase B remain NOT STARTED / NOT AUTHORIZED. `G10-APPROVED = false`.
 
 Planning package: `.agents/IMPLEMENTATION_PLAN_GATE_10.md`.
 

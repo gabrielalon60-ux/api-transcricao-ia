@@ -39,7 +39,7 @@ REQUIRED_ENV_VARS = [
 ]
 
 PROJECT_NAME = "g10b1"
-PINNED_WUZAPI_COMMIT = "42c38d38e2195f00e30e10ec85871fbd48512dd9"
+PINNED_WUZAPI_COMMIT = "9487eca9a40f292d19953a44983979c85d91ccce"  # WUZAPI release v1.0.8
 PINNED_WUZAPI_IMAGE = f"g10b1-wuzapi:{PINNED_WUZAPI_COMMIT}"
 
 
@@ -155,8 +155,8 @@ def run_prepare_wuzapi() -> None:
             check=True,
         )
 
-    print(f"Checking out exact commit {PINNED_WUZAPI_COMMIT}...")
-    subprocess.run(["git", "fetch", "origin"], cwd=str(repo_dir), check=True)
+    print(f"Checking out exact commit {PINNED_WUZAPI_COMMIT} (v1.0.8)...")
+    subprocess.run(["git", "fetch", "--tags", "origin"], cwd=str(repo_dir), check=True)
     subprocess.run(["git", "checkout", PINNED_WUZAPI_COMMIT], cwd=str(repo_dir), check=True)
 
     proc = subprocess.run(["git", "rev-parse", "HEAD"], cwd=str(repo_dir), capture_output=True, text=True, check=True)
