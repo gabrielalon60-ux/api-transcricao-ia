@@ -271,6 +271,36 @@ def get_wuzapi_runtime_instance_id() -> str:
     return user_id.strip()
 
 
+def get_local_registration_secret() -> str:
+    val = os.environ.get("G10_B1_REGISTRATION_SECRET", "").strip()
+    if val:
+        return val
+    for env_path in (ENV_FILE, ROOT_DIR / "deploy" / ".env.g10b1.local", ROOT_DIR / ".env.g10b1.local"):
+        if env_path.is_file():
+            for line in env_path.read_text(encoding="utf-8").splitlines():
+                line = line.strip()
+                if line.startswith("G10_B1_REGISTRATION_SECRET="):
+                    extracted = line.split("=", 1)[1].strip().strip('"').strip("'")
+                    if extracted:
+                        return extracted
+    return ""
+
+
+def get_local_registration_pepper() -> str:
+    val = os.environ.get("G10_B1_REGISTRATION_PEPPER", "").strip()
+    if val:
+        return val
+    for env_path in (ENV_FILE, ROOT_DIR / "deploy" / ".env.g10b1.local", ROOT_DIR / ".env.g10b1.local"):
+        if env_path.is_file():
+            for line in env_path.read_text(encoding="utf-8").splitlines():
+                line = line.strip()
+                if line.startswith("G10_B1_REGISTRATION_PEPPER="):
+                    extracted = line.split("=", 1)[1].strip().strip('"').strip("'")
+                    if extracted:
+                        return extracted
+    return "pepper_secret_g10b1_32bytes_min"
+
+
 def run_seed_fixtures() -> None:
     # 1. Mandatory Dedicated Fixture Seeding Authorization Guard & Phase Validation
     allow_seeding = os.environ.get("G10_B1_ALLOW_FIXTURE_SEEDING", "").strip()
@@ -280,9 +310,9 @@ def run_seed_fixtures() -> None:
             "FIXTURE_SEEDING_NOT_AUTHORIZED: Command 'seed-fixtures' requires explicit environment variable G10_B1_ALLOW_FIXTURE_SEEDING=1.\n"
         )
         sys.exit(1)
-    if current_phase not in ("P2", "P3", "P4", "P2_STACK", "P2_EXECUTION"):
+    if current_phase not in ("P2", "P3", "P4", "P5", "P2_STACK", "P2_EXECUTION"):
         sys.stderr.write(
-            "PHASE_NOT_AUTHORIZED: Command 'seed-fixtures' requires G10_B1_AUTHORIZED_PHASE in (P2, P3, P4).\n"
+            "PHASE_NOT_AUTHORIZED: Command 'seed-fixtures' requires G10_B1_AUTHORIZED_PHASE in (P2, P3, P4, P5).\n"
         )
         sys.exit(1)
 
@@ -326,7 +356,23 @@ def run_seed_fixtures() -> None:
         sys.stderr.write(f"WUZAPI_RESOLUTION_FAILED: {exc}\n")
         sys.exit(1)
 
-    # 4. Fail-Closed Idempotent PL/pgSQL Block
+    # 4. Resolve and Hash Registration Secret using security.hash
+    sec_path = str(ROOT_DIR / "packages" / "security" / "src")
+    if sec_path not in sys.path:
+        sys.path.insert(0, sec_path)
+    from security.hash import hash_secret
+
+    reg_secret = get_local_registration_secret()
+    if not reg_secret:
+        sys.stderr.write(
+            "LOCAL_REGISTRATION_SECRET_NOT_AVAILABLE: G10_B1_REGISTRATION_SECRET missing in environment or local config.\n"
+        )
+        sys.exit(1)
+
+    reg_pepper = get_local_registration_pepper()
+    reg_hash = hash_secret("org-g10b1-test:" + reg_secret, reg_pepper)
+
+    # 5. Fail-Closed Idempotent PL/pgSQL Block
     plpgsql_script = f"""
     DO $$
     DECLARE
@@ -335,6 +381,7 @@ def run_seed_fixtures() -> None:
         v_inst_count INT;
         v_org_slug TEXT;
         v_org_status TEXT;
+        v_org_hash TEXT;
         v_bot_org TEXT;
         v_bot_key TEXT;
         v_bot_status TEXT;
@@ -346,8 +393,8 @@ def run_seed_fixtures() -> None:
         v_inst_status TEXT;
     BEGIN
         -- 1. Organization Fail-Closed / Idempotent Check
-        SELECT count(*), min(slug), min(status)
-        INTO v_org_count, v_org_slug, v_org_status
+        SELECT count(*), min(slug), min(status), min(registration_secret_hash)
+        INTO v_org_count, v_org_slug, v_org_status, v_org_hash
         FROM organizations
         WHERE id = 'org-g10b1-test' OR slug = 'g10b1-test-org';
 
@@ -355,9 +402,16 @@ def run_seed_fixtures() -> None:
             IF v_org_count > 1 OR v_org_slug != 'g10b1-test-org' OR v_org_status != 'ACTIVE' THEN
                 RAISE EXCEPTION 'FIXTURE_CONFLICT: Conflicting organization row exists (count=%, slug=%, status=%)', v_org_count, v_org_slug, v_org_status;
             END IF;
+            IF v_org_hash IS NULL THEN
+                UPDATE organizations
+                SET registration_secret_hash = '{reg_hash}'
+                WHERE id = 'org-g10b1-test';
+            ELSIF v_org_hash != '{reg_hash}' THEN
+                RAISE EXCEPTION 'FIXTURE_CONFLICT_REGISTRATION_SECRET: Organization registration_secret_hash does not match local secret';
+            END IF;
         ELSE
-            INSERT INTO organizations (id, name, slug, status)
-            VALUES ('org-g10b1-test', 'G10-B1 Test Organization', 'g10b1-test-org', 'ACTIVE');
+            INSERT INTO organizations (id, name, slug, status, registration_secret_hash)
+            VALUES ('org-g10b1-test', 'G10-B1 Test Organization', 'g10b1-test-org', 'ACTIVE', '{reg_hash}');
         END IF;
 
         -- 2. Bot Fail-Closed / Idempotent Check
@@ -376,10 +430,10 @@ def run_seed_fixtures() -> None:
         END IF;
 
         -- 3. Instance Fail-Closed / Idempotent Check
-        SELECT count(*), min(id), min(organization_id), min(bot_id), min(provider), min(external_instance_id), min(status)
+        SELECT count(*), min(id), min(organization_id), min(bot_id), min(provider::text), min(external_instance_id), min(status::text)
         INTO v_inst_count, v_inst_id, v_inst_org, v_inst_bot, v_inst_prov, v_inst_ext, v_inst_status
         FROM instances
-        WHERE id = 'inst-g10b1-test' OR (provider = 'WUZAPI' AND external_instance_id = '{external_instance_id}');
+        WHERE id = 'inst-g10b1-test' OR (provider::text = 'WUZAPI' AND external_instance_id = '{external_instance_id}');
 
         IF v_inst_count > 0 THEN
             IF v_inst_count > 1

@@ -251,3 +251,37 @@ def test_invariant_q_fail_closed_idempotency_contract():
     assert "org-g10b1-test" in runner_code
     assert "bot-g10b1-test" in runner_code
     assert "5511999990000" in runner_code
+
+
+@pytest.mark.real_e2e
+def test_invariant_r_registration_secret_fixture_harness_contract():
+    # R. Harness derives registration_secret_hash using security.hash.hash_secret and fails closed on conflict
+    runner_code = RUNNER_SCRIPT.read_text(encoding="utf-8")
+    assert "from security.hash import hash_secret" in runner_code
+    assert "hash_secret(\"org-g10b1-test:\" + reg_secret, reg_pepper)" in runner_code
+    assert "FIXTURE_CONFLICT_REGISTRATION_SECRET" in runner_code
+    assert "LOCAL_REGISTRATION_SECRET_NOT_AVAILABLE" in runner_code
+    assert "UPDATE organizations" in runner_code
+    assert "SET registration_secret_hash" in runner_code
+
+
+@pytest.mark.real_e2e
+def test_invariant_s_zero_plaintext_registration_secret_in_tracked_source():
+    # S. No hardcoded registration secrets in runner or test files
+    runner_content = RUNNER_SCRIPT.read_text(encoding="utf-8")
+    assert "G10_B1_REGISTRATION_SECRET =" not in runner_content
+    assert "registration_secret_hash" in runner_content
+
+
+@pytest.mark.real_e2e
+def test_registration_secret_security_hash_verification():
+    from security.hash import hash_secret, verify_secret
+
+    org_id = "org-g10b1-test"
+    secret_a = "synthetic_local_secret_abc123"
+    secret_b = "synthetic_local_secret_mismatch456"
+    pepper = "pepper_secret_g10b1_32bytes_min"
+
+    hashed_a = hash_secret(f"{org_id}:{secret_a}", pepper)
+    assert verify_secret(f"{org_id}:{secret_a}", hashed_a, pepper) is True
+    assert verify_secret(f"{org_id}:{secret_b}", hashed_a, pepper) is False
