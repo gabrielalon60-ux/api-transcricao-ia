@@ -1,5 +1,6 @@
 from fastapi import FastAPI, Request, Depends, HTTPException
 from contextlib import asynccontextmanager
+from typing import Any
 from sqlalchemy.orm import Session
 import sqlalchemy as sa
 import logging
@@ -29,10 +30,34 @@ logger = logging.getLogger(__name__)
 def extract_file_info(
     payload: dict, message_type: str, text_content: str | None
 ) -> dict:
+    # Unpack nested jsonData string if present
+    p_json_data = payload.get("jsonData")
+    json_data_obj = {}
+    if isinstance(p_json_data, str):
+        try:
+            p_parsed = json.loads(p_json_data)
+            if isinstance(p_parsed, dict):
+                json_data_obj = p_parsed
+        except Exception:
+            pass
+    elif isinstance(p_json_data, dict):
+        json_data_obj = p_json_data
+
+    p_event = json_data_obj.get("event")
+    event_obj: dict = p_event if isinstance(p_event, dict) else {}
+    p_info = event_obj.get("Info")
+    info_obj: dict = p_info if isinstance(p_info, dict) else {}
+    p_event_msg = event_obj.get("Message")
+    event_msg: dict = p_event_msg if isinstance(p_event_msg, dict) else {}
+
     p_data = payload.get("data")
     data: dict = p_data if isinstance(p_data, dict) else {}
     p_msg = data.get("message")
-    message: dict = p_msg if isinstance(p_msg, dict) else {}
+    message: dict = (
+        p_msg
+        if isinstance(p_msg, dict)
+        else (event_msg if isinstance(event_msg, dict) else {})
+    )
     p_msgs = data.get("messages")
     if not message and isinstance(p_msgs, list) and p_msgs:
         first = p_msgs[0]
@@ -46,11 +71,19 @@ def extract_file_info(
 
     p_img_msg = message.get("imageMessage")
     p_img_data = data.get("imageMessage")
-    img: dict = p_img_msg if isinstance(p_img_msg, dict) else (p_img_data if isinstance(p_img_data, dict) else {})
+    img: dict = (
+        p_img_msg
+        if isinstance(p_img_msg, dict)
+        else (p_img_data if isinstance(p_img_data, dict) else {})
+    )
 
     p_doc_msg = message.get("documentMessage")
     p_doc_data = data.get("documentMessage")
-    doc: dict = p_doc_msg if isinstance(p_doc_msg, dict) else (p_doc_data if isinstance(p_doc_data, dict) else {})
+    doc: dict = (
+        p_doc_msg
+        if isinstance(p_doc_msg, dict)
+        else (p_doc_data if isinstance(p_doc_data, dict) else {})
+    )
 
     if img:
         mime_type = str(img.get("mimetype") or "image/jpeg")
@@ -67,24 +100,48 @@ def extract_file_info(
         mime_type = payload.get("file_mime_type", mime_type)
         original_filename = payload.get("original_filename")
 
-    raw_inst = payload.get("instanceId") or data.get("instanceId")
+    raw_inst = (
+        payload.get("userID")
+        or payload.get("instanceId")
+        or data.get("instanceId")
+        or json_data_obj.get("instanceId")
+        or json_data_obj.get("userID")
+    )
     if not raw_inst:
         raw_inst_obj = payload.get("instance")
         if isinstance(raw_inst_obj, dict):
             raw_inst = raw_inst_obj.get("external_id")
         elif isinstance(raw_inst_obj, str):
             raw_inst = raw_inst_obj
-    ext_inst_id = str(raw_inst) if isinstance(raw_inst, str) and raw_inst.strip() else "inst-1"
+    ext_inst_id = (
+        str(raw_inst).strip()
+        if isinstance(raw_inst, str) and raw_inst.strip()
+        else "inst-1"
+    )
 
     p_key = message.get("key")
     key: dict = p_key if isinstance(p_key, dict) else {}
-    raw_msg_id = key.get("id") or data.get("id") or payload.get("external_message_id")
-    ext_msg_id = str(raw_msg_id) if isinstance(raw_msg_id, str) and raw_msg_id.strip() else "msg-1"
+    raw_msg_id = (
+        info_obj.get("ID")
+        or info_obj.get("Id")
+        or key.get("id")
+        or data.get("id")
+        or payload.get("external_message_id")
+    )
+    ext_msg_id = (
+        str(raw_msg_id).strip()
+        if isinstance(raw_msg_id, str) and raw_msg_id.strip()
+        else "msg-1"
+    )
 
     media_ref = None
     if message_type in ("image", "pdf"):
         media_msg = img if message_type == "image" else doc
-        direct_path = media_msg.get("directPath") or media_msg.get("direct_path") if isinstance(media_msg, dict) else None
+        direct_path = (
+            media_msg.get("directPath") or media_msg.get("direct_path")
+            if isinstance(media_msg, dict)
+            else None
+        )
 
         media_ref = {
             "version": "1.0",
@@ -185,6 +242,38 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
         logger.warning(f"Malformed webhook payload: {exc}")
         raise HTTPException(status_code=400, detail="Malformed payload")
 
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="Malformed payload")
+
+    # Handle native WUZAPI v1.0.8 nested jsonData string if present
+    json_data_envelope: dict | None = None
+    raw_json_data = payload.get("jsonData")
+    if raw_json_data is not None:
+        if isinstance(raw_json_data, str):
+            try:
+                parsed_json = json.loads(raw_json_data)
+            except Exception as exc:
+                logger.warning(f"Malformed nested jsonData string: {exc}")
+                raise HTTPException(status_code=400, detail="Malformed jsonData payload")
+            if not isinstance(parsed_json, dict):
+                raise HTTPException(status_code=400, detail="jsonData must be a JSON object")
+            json_data_envelope = parsed_json
+        elif isinstance(raw_json_data, dict):
+            json_data_envelope = raw_json_data
+        else:
+            raise HTTPException(status_code=400, detail="Invalid jsonData type")
+
+    # Filter out non-Message lifecycle events (ChatPresence, HistorySync, Receipt, etc.)
+    if json_data_envelope is not None:
+        event_type = json_data_envelope.get("type") or (
+            json_data_envelope.get("event", {}).get("Type")
+            if isinstance(json_data_envelope.get("event"), dict)
+            else None
+        )
+        if event_type and event_type != "Message":
+            logger.info(f"Ignoring non-Message lifecycle event: {event_type}")
+            return {"status": "ok", "detail": f"ignored_{event_type.lower()}"}
+
     # Derive Ingress Identity
     provider = payload.get("provider") or "WUZAPI"
 
@@ -200,7 +289,7 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
     if is_evolution:
         info = payload["event"].get("Info", {})
         external_instance_id = payload.get("instanceId")
-        external_message_id = info.get("Id")
+        external_message_id = info.get("Id") or info.get("ID")
         sender_phone_raw = info.get("SenderAlt") or info.get("Sender") or ""
         msg_type = info.get("MediaType") or "text"
         message_type = (
@@ -209,8 +298,106 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
             else ("pdf" if msg_type == "document" else "text")
         )
         text_content = payload.get("text")
+    elif json_data_envelope is not None:
+        # Native WUZAPI v1.0.8 envelope with jsonData
+        p_event = json_data_envelope.get("event")
+        event_obj: dict = p_event if isinstance(p_event, dict) else {}
+        p_info = event_obj.get("Info")
+        info_obj: dict = p_info if isinstance(p_info, dict) else {}
+        p_msg = event_obj.get("Message")
+        msg_obj: dict = p_msg if isinstance(p_msg, dict) else {}
+        p_raw = event_obj.get("RawMessage")
+        if not msg_obj and isinstance(p_raw, dict):
+            msg_obj = p_raw
+
+        # Resolve instance ID (canonical WUZAPI user ID)
+        raw_inst = (
+            payload.get("userID")
+            or payload.get("instanceId")
+            or payload.get("instance")
+            or json_data_envelope.get("instanceId")
+            or json_data_envelope.get("userID")
+        )
+        if isinstance(raw_inst, dict):
+            raw_inst = raw_inst.get("external_id")
+        external_instance_id = (
+            str(raw_inst).strip()
+            if isinstance(raw_inst, str) and raw_inst.strip()
+            else None
+        )
+
+        # Resolve message ID
+        raw_msg_id = (
+            info_obj.get("ID")
+            or info_obj.get("Id")
+            or (
+                msg_obj.get("key", {}).get("id")
+                if isinstance(msg_obj.get("key"), dict)
+                else None
+            )
+            or json_data_envelope.get("id")
+            or payload.get("external_message_id")
+        )
+        external_message_id = (
+            str(raw_msg_id).strip()
+            if isinstance(raw_msg_id, str) and raw_msg_id.strip()
+            else None
+        )
+
+        # Resolve sender phone / JID (canonical Sender with LID/SenderAlt privacy resolution)
+        p_key_raw = msg_obj.get("key")
+        p_key: dict = p_key_raw if isinstance(p_key_raw, dict) else {}
+        sender_raw = info_obj.get("Sender")
+        sender_alt_raw = info_obj.get("SenderAlt")
+
+        sender_str = str(sender_raw).strip() if sender_raw else ""
+        sender_alt_str = str(sender_alt_raw).strip() if sender_alt_raw else ""
+        raw_sender: Any = None
+
+        if sender_str and not sender_str.endswith("@lid"):
+            raw_sender = sender_str
+        elif sender_alt_str and not sender_alt_str.endswith("@lid"):
+            raw_sender = sender_alt_str
+        elif sender_str:
+            raw_sender = sender_str
+        elif sender_alt_str:
+            raw_sender = sender_alt_str
+        else:
+            raw_sender = (
+                info_obj.get("Chat")
+                or p_key.get("remoteJid")
+                or json_data_envelope.get("sender")
+                or payload.get("sender")
+            )
+        sender_phone_raw = (
+            str(raw_sender).strip()
+            if isinstance(raw_sender, str) and str(raw_sender).strip()
+            else ""
+        )
+
+        # Determine message type and text content
+        p_img = msg_obj.get("imageMessage")
+        p_doc = msg_obj.get("documentMessage")
+        media_type_info = info_obj.get("MediaType")
+        if isinstance(p_img, dict) or media_type_info == "image":
+            message_type = "image"
+            text_content = p_img.get("caption") if isinstance(p_img, dict) else None
+        elif isinstance(p_doc, dict) or media_type_info == "document":
+            message_type = "pdf"
+            text_content = p_doc.get("caption") if isinstance(p_doc, dict) else None
+        else:
+            message_type = "text"
+            p_ext_raw = msg_obj.get("extendedTextMessage")
+            p_ext_msg: dict = p_ext_raw if isinstance(p_ext_raw, dict) else {}
+            ext_text = p_ext_msg.get("text") if isinstance(p_ext_msg.get("text"), str) else None
+            text_content = (
+                msg_obj.get("conversation")
+                or ext_text
+                or json_data_envelope.get("text")
+                or payload.get("text")
+            )
     else:
-        # Standard WUZAPI format
+        # Standard Legacy & Flat WUZAPI format
         p_data = payload.get("data")
         data: dict = p_data if isinstance(p_data, dict) else {}
         p_msg = data.get("message")
@@ -222,29 +409,41 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
                 message = first
 
         # Resolve instance ID
-        raw_inst = payload.get("instanceId") or data.get("instanceId")
+        raw_inst = (
+            payload.get("userID")
+            or payload.get("instanceId")
+            or data.get("instanceId")
+        )
         if not raw_inst:
             raw_inst_obj = payload.get("instance")
             if isinstance(raw_inst_obj, dict):
                 raw_inst = raw_inst_obj.get("external_id")
             elif isinstance(raw_inst_obj, str):
                 raw_inst = raw_inst_obj
-        external_instance_id = str(raw_inst) if isinstance(raw_inst, str) and raw_inst.strip() else None
+        external_instance_id = (
+            str(raw_inst).strip()
+            if isinstance(raw_inst, str) and raw_inst.strip()
+            else None
+        )
 
         # Resolve message ID
-        p_key = message.get("key")
-        key: dict = p_key if isinstance(p_key, dict) else {}
-        raw_msg_id = key.get("id") or data.get("id") or payload.get("external_message_id")
-        external_message_id = str(raw_msg_id) if isinstance(raw_msg_id, str) and raw_msg_id.strip() else None
+        p_std_key_raw = message.get("key")
+        std_key: dict = p_std_key_raw if isinstance(p_std_key_raw, dict) else {}
+        raw_msg_id = std_key.get("id") or data.get("id") or payload.get("external_message_id")
+        external_message_id = (
+            str(raw_msg_id).strip()
+            if isinstance(raw_msg_id, str) and raw_msg_id.strip()
+            else None
+        )
 
         # Resolve sender phone / JID
-        raw_sender = (
-            key.get("remoteJid")
+        std_raw_sender: Any = (
+            std_key.get("remoteJid")
             or data.get("sender")
             or data.get("chat")
             or payload.get("sender")
         )
-        sender_phone_raw = str(raw_sender) if isinstance(raw_sender, str) else ""
+        sender_phone_raw = str(std_raw_sender) if isinstance(std_raw_sender, str) else ""
 
         # Determine message type
         if "imageMessage" in message or "imageMessage" in data:
@@ -253,8 +452,9 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
             message_type = "pdf"
         else:
             message_type = "text"
-            p_ext_msg = message.get("extendedTextMessage")
-            ext_text = p_ext_msg.get("text") if isinstance(p_ext_msg, dict) else None
+            p_std_ext_raw = message.get("extendedTextMessage")
+            p_std_ext: dict = p_std_ext_raw if isinstance(p_std_ext_raw, dict) else {}
+            ext_text = p_std_ext.get("text") if isinstance(p_std_ext.get("text"), str) else None
             text_content = (
                 message.get("conversation")
                 or ext_text
