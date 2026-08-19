@@ -16,6 +16,7 @@ without executing network traffic or WhatsApp logins.
 
 import os
 import subprocess
+import sys
 import pytest
 from pathlib import Path
 
@@ -150,3 +151,103 @@ def test_invariant_l_df_holding_identifiers_valid_json_array():
             break
     else:
         pytest.fail("DF_HOLDING_IDENTIFIERS not found in compose.g10b1.yml")
+
+
+@pytest.mark.real_e2e
+def test_invariant_m_runner_seed_fixtures_registration_and_phase_guard():
+    # M. seed-fixtures is registered, bootstrap alias is removed, and G10_B1_ALLOW_FIXTURE_SEEDING=1 is strictly mandatory
+    runner_code = RUNNER_SCRIPT.read_text(encoding="utf-8")
+    assert 'subparsers.add_parser("seed-fixtures"' in runner_code
+    assert 'subparsers.add_parser("bootstrap"' not in runner_code
+    assert 'def run_seed_fixtures()' in runner_code
+    assert 'G10_B1_ALLOW_FIXTURE_SEEDING' in runner_code
+    assert 'FIXTURE_SEEDING_NOT_AUTHORIZED' in runner_code
+
+    base_env = {
+        k: v for k, v in os.environ.items()
+        if k not in ("G10_B1_AUTHORIZED_PHASE", "G10_B1_ALLOW_FIXTURE_SEEDING")
+    }
+
+    # Case A: ALLOW_FIXTURE_SEEDING absent + PHASE=P2 => denied
+    env_a = {**base_env, "G10_B1_AUTHORIZED_PHASE": "P2"}
+    proc_a = subprocess.run([sys.executable, str(RUNNER_SCRIPT), "seed-fixtures"], capture_output=True, text=True, env=env_a)
+    assert proc_a.returncode != 0
+    assert "FIXTURE_SEEDING_NOT_AUTHORIZED" in proc_a.stderr
+
+    # Case B: ALLOW_FIXTURE_SEEDING absent + PHASE=P3 => denied
+    env_b = {**base_env, "G10_B1_AUTHORIZED_PHASE": "P3"}
+    proc_b = subprocess.run([sys.executable, str(RUNNER_SCRIPT), "seed-fixtures"], capture_output=True, text=True, env=env_b)
+    assert proc_b.returncode != 0
+    assert "FIXTURE_SEEDING_NOT_AUTHORIZED" in proc_b.stderr
+
+    # Case C: ALLOW_FIXTURE_SEEDING absent + PHASE=P4 => denied
+    env_c = {**base_env, "G10_B1_AUTHORIZED_PHASE": "P4"}
+    proc_c = subprocess.run([sys.executable, str(RUNNER_SCRIPT), "seed-fixtures"], capture_output=True, text=True, env=env_c)
+    assert proc_c.returncode != 0
+    assert "FIXTURE_SEEDING_NOT_AUTHORIZED" in proc_c.stderr
+
+    # Case D: ALLOW_FIXTURE_SEEDING=0 + PHASE=P3 => denied
+    env_d = {**base_env, "G10_B1_AUTHORIZED_PHASE": "P3", "G10_B1_ALLOW_FIXTURE_SEEDING": "0"}
+    proc_d = subprocess.run([sys.executable, str(RUNNER_SCRIPT), "seed-fixtures"], capture_output=True, text=True, env=env_d)
+    assert proc_d.returncode != 0
+    assert "FIXTURE_SEEDING_NOT_AUTHORIZED" in proc_d.stderr
+
+    # Case D2: ALLOW_FIXTURE_SEEDING=false + PHASE=P3 => denied
+    env_d2 = {**base_env, "G10_B1_AUTHORIZED_PHASE": "P3", "G10_B1_ALLOW_FIXTURE_SEEDING": "false"}
+    proc_d2 = subprocess.run([sys.executable, str(RUNNER_SCRIPT), "seed-fixtures"], capture_output=True, text=True, env=env_d2)
+    assert proc_d2.returncode != 0
+    assert "FIXTURE_SEEDING_NOT_AUTHORIZED" in proc_d2.stderr
+
+    # Case E: ALLOW_FIXTURE_SEEDING=1 + PHASE=P3 => authorization guard permits progression
+    env_e = {**base_env, "G10_B1_AUTHORIZED_PHASE": "P3", "G10_B1_ALLOW_FIXTURE_SEEDING": "1"}
+    proc_e = subprocess.run([sys.executable, str(RUNNER_SCRIPT), "seed-fixtures"], capture_output=True, text=True, env=env_e)
+    assert proc_e.returncode == 0
+    assert "Minimum test fixtures seeded successfully" in proc_e.stdout
+
+
+@pytest.mark.real_e2e
+def test_invariant_n_runner_seed_fixtures_sql_and_container_guards():
+    # N. SQL insertions target strictly Organization, Bot, and Instance (NO User, NO Enterprise, NO Supplier)
+    # and verify Docker project and Postgres major version guards
+    runner_code = RUNNER_SCRIPT.read_text(encoding="utf-8")
+    assert "INSERT INTO organizations" in runner_code
+    assert "INSERT INTO bots" in runner_code
+    assert "INSERT INTO instances" in runner_code
+    assert "INSERT INTO users" not in runner_code
+    assert "INSERT INTO enterprise_command_sessions" not in runner_code
+    assert "INSERT INTO whatsapp_chat_enterprise_bindings" not in runner_code
+    assert "platform_g10b1" in runner_code
+    assert "g10b1_user" in runner_code
+    assert "PostgreSQL 15" in runner_code
+    assert "com.docker.compose.project" in runner_code
+
+
+@pytest.mark.real_e2e
+def test_invariant_o_zero_hardcoded_runtime_id_in_tracked_source():
+    # O. Live WUZAPI user ID is NOT hardcoded in runner or test source
+    live_id = "14b8c2097a8eeecb937d7c690a9ea2b7"
+    runner_content = RUNNER_SCRIPT.read_text(encoding="utf-8")
+    assert live_id not in runner_content, "Live WUZAPI runtime ID must not be hardcoded in runner"
+
+
+@pytest.mark.real_e2e
+def test_invariant_p_dynamic_wuzapi_runtime_id_resolution_contract():
+    # P. Dynamic resolver queries /session/status and validates synthetic user 'g10b1_test'
+    runner_code = RUNNER_SCRIPT.read_text(encoding="utf-8")
+    assert "def get_wuzapi_runtime_instance_id()" in runner_code
+    assert "127.0.0.1:18080/session/status" in runner_code
+    assert "g10b1_test" in runner_code
+    assert "G10_B1_WUZAPI_TOKEN" in runner_code
+
+
+@pytest.mark.real_e2e
+def test_invariant_q_fail_closed_idempotency_contract():
+    # Q. PL/pgSQL block enforces fail-closed checks on conflicting data
+    runner_code = RUNNER_SCRIPT.read_text(encoding="utf-8")
+    assert "FIXTURE_CONFLICT: Conflicting organization row exists" in runner_code
+    assert "FIXTURE_CONFLICT: Conflicting bot row exists" in runner_code
+    assert "FIXTURE_CONFLICT: Conflicting instance row exists" in runner_code
+    assert "inst-g10b1-test" in runner_code
+    assert "org-g10b1-test" in runner_code
+    assert "bot-g10b1-test" in runner_code
+    assert "5511999990000" in runner_code

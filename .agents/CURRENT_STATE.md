@@ -3,7 +3,7 @@
 > Convenience summary only. `TASKS_TESTS_GATES.md` is the operational source of truth.
 
 ## Current Gate
-**Gate 10 — Security / Release Candidate (G10-A APPROVED / COMPLETE LOCALLY; G10-B1 P1 PUSHED; G10-B1 P2 LOCAL IMAGE BUILT & DF_HOLDING_IDENTIFIERS CONFIG CORRECTED / P2 RE-AUTHORIZATION HOLD)**
+**Gate 10 — Security / Release Candidate (G10-A APPROVED / COMPLETE LOCALLY; G10-B1 P1 PUSHED; G10-B1 P2 COMPLETE / RUNNING; G10-B1 P3 COMPLETE / SESSION AUTHENTICATED; PRE-REAL-MESSAGE FIXTURES SEEDED / FINAL REVIEW; REAL-MESSAGE AUTHORIZATION HOLD)**
 
 ## Last User-Approved Gate
 **Gate 9 — Operations and observability (Approved on 2026-08-15, America/Sao_Paulo)**

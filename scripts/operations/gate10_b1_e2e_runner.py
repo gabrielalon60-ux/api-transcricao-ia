@@ -5,7 +5,7 @@ Provides controlled subcommands:
 - preflight: Offline prerequisite, configuration, and phase validation (P1 allowed).
 - prepare-wuzapi: Prepares pinned WUZAPI local image tag (P2-gated).
 - up: Starts g10b1 local Docker stack (P2-gated).
-- bootstrap: Programs disposable DB fixtures (Org, Instance, User, Enterprise, Supplier) (P2-gated).
+- seed-fixtures: Programs minimum disposable DB fixtures (Org, Bot, Instance) (P2/P3/P4 or G10_B1_ALLOW_FIXTURE_SEEDING-gated).
 - status: Checks health of g10b1 container stack (P1 allowed).
 - replay: Replays a sanitized local JSON webhook fixture with valid HMAC (P2-gated).
 - down: Stops g10b1 stack preserving data/session volumes (P2-gated).
@@ -226,6 +226,205 @@ def run_replay(fixture_path: str) -> None:
         sys.exit(1)
 
 
+def get_wuzapi_runtime_instance_id() -> str:
+    """
+    Safely queries local WUZAPI (127.0.0.1:18080) in memory to resolve the canonical
+    runtime user/instance ID for the exact synthetic test user 'g10b1_test'.
+    Tokens are held in memory only and never printed or logged.
+    """
+    token = os.environ.get("G10_B1_WUZAPI_TOKEN")
+    if not token and ENV_FILE.is_file():
+        for line in ENV_FILE.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if line.startswith("G10_B1_WUZAPI_TOKEN="):
+                token = line.split("=", 1)[1].strip().strip("\"'")
+                break
+
+    if not token:
+        raise ValueError("G10_B1_WUZAPI_TOKEN not found in environment or .env.g10b1.local")
+
+    import json
+    import urllib.request
+
+    req = urllib.request.Request(
+        "http://127.0.0.1:18080/session/status",
+        headers={"token": token},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=5.0) as resp:
+            if resp.status != 200:
+                raise ValueError(f"WUZAPI returned status {resp.status} on /session/status")
+            data_bytes = resp.read()
+            payload = json.loads(data_bytes.decode("utf-8"))
+    except Exception as exc:
+        raise RuntimeError(f"Failed to query WUZAPI session status on 127.0.0.1:18080: {exc}") from exc
+
+    user_data = payload.get("data", {})
+    user_name = user_data.get("name")
+    if user_name != "g10b1_test":
+        raise ValueError(f"WUZAPI user name mismatch: expected 'g10b1_test', got '{user_name}'")
+
+    user_id = user_data.get("id")
+    if not user_id or not isinstance(user_id, str) or not user_id.strip():
+        raise ValueError("WUZAPI user ID is missing or invalid in /session/status response")
+
+    return user_id.strip()
+
+
+def run_seed_fixtures() -> None:
+    # 1. Mandatory Dedicated Fixture Seeding Authorization Guard & Phase Validation
+    allow_seeding = os.environ.get("G10_B1_ALLOW_FIXTURE_SEEDING", "").strip()
+    current_phase = os.environ.get("G10_B1_AUTHORIZED_PHASE", "").strip().upper()
+    if allow_seeding != "1":
+        sys.stderr.write(
+            "FIXTURE_SEEDING_NOT_AUTHORIZED: Command 'seed-fixtures' requires explicit environment variable G10_B1_ALLOW_FIXTURE_SEEDING=1.\n"
+        )
+        sys.exit(1)
+    if current_phase not in ("P2", "P3", "P4", "P2_STACK", "P2_EXECUTION"):
+        sys.stderr.write(
+            "PHASE_NOT_AUTHORIZED: Command 'seed-fixtures' requires G10_B1_AUTHORIZED_PHASE in (P2, P3, P4).\n"
+        )
+        sys.exit(1)
+
+    print("=== SEEDING G10-B1 MINIMUM TEST FIXTURES (DISPOSABLE DB ONLY) ===")
+
+    # 2. Strict Docker & PostgreSQL Safety Identity Guard
+    inspect_cmd = [
+        "docker", "inspect", "g10b1_postgres",
+        "--format", "{{index .Config.Labels \"com.docker.compose.project\"}}"
+    ]
+    inspect_proc = run_cmd(inspect_cmd, check=False)
+    if inspect_proc.returncode != 0 or inspect_proc.stdout.strip() != PROJECT_NAME:
+        sys.stderr.write(
+            f"SAFETY_CHECK_FAILED: Container g10b1_postgres is not owned by compose project '{PROJECT_NAME}'. Refusing mutation.\n"
+        )
+        sys.exit(1)
+
+    check_cmd = [
+        "docker", "exec", "g10b1_postgres", "psql", "-U", "g10b1_user", "-d", "platform_g10b1",
+        "-t", "-A", "-c", "SELECT current_database() || '|' || current_user || '|' || version();"
+    ]
+    proc = run_cmd(check_cmd, check=False)
+    if proc.returncode != 0 or not proc.stdout.strip():
+        sys.stderr.write(f"SAFETY_CHECK_FAILED: Unable to verify disposable DB identity: {proc.stderr}\n")
+        sys.exit(1)
+
+    db_ident = proc.stdout.strip()
+    parts = db_ident.split("|")
+    db_name = parts[0] if len(parts) > 0 else ""
+    db_user = parts[1] if len(parts) > 1 else ""
+    db_ver = parts[2] if len(parts) > 2 else ""
+
+    if db_name != "platform_g10b1" or db_user != "g10b1_user" or "PostgreSQL 15" not in db_ver:
+        sys.stderr.write(f"PROHIBITED_TARGET: Refusing mutation on non-disposable target: {db_ident}\n")
+        sys.exit(1)
+
+    # 3. Dynamic WUZAPI Runtime Identifier Resolution
+    try:
+        external_instance_id = get_wuzapi_runtime_instance_id()
+    except Exception as exc:
+        sys.stderr.write(f"WUZAPI_RESOLUTION_FAILED: {exc}\n")
+        sys.exit(1)
+
+    # 4. Fail-Closed Idempotent PL/pgSQL Block
+    plpgsql_script = f"""
+    DO $$
+    DECLARE
+        v_org_count INT;
+        v_bot_count INT;
+        v_inst_count INT;
+        v_org_slug TEXT;
+        v_org_status TEXT;
+        v_bot_org TEXT;
+        v_bot_key TEXT;
+        v_bot_status TEXT;
+        v_inst_id TEXT;
+        v_inst_org TEXT;
+        v_inst_bot TEXT;
+        v_inst_prov TEXT;
+        v_inst_ext TEXT;
+        v_inst_status TEXT;
+    BEGIN
+        -- 1. Organization Fail-Closed / Idempotent Check
+        SELECT count(*), min(slug), min(status)
+        INTO v_org_count, v_org_slug, v_org_status
+        FROM organizations
+        WHERE id = 'org-g10b1-test' OR slug = 'g10b1-test-org';
+
+        IF v_org_count > 0 THEN
+            IF v_org_count > 1 OR v_org_slug != 'g10b1-test-org' OR v_org_status != 'ACTIVE' THEN
+                RAISE EXCEPTION 'FIXTURE_CONFLICT: Conflicting organization row exists (count=%, slug=%, status=%)', v_org_count, v_org_slug, v_org_status;
+            END IF;
+        ELSE
+            INSERT INTO organizations (id, name, slug, status)
+            VALUES ('org-g10b1-test', 'G10-B1 Test Organization', 'g10b1-test-org', 'ACTIVE');
+        END IF;
+
+        -- 2. Bot Fail-Closed / Idempotent Check
+        SELECT count(*), min(organization_id), min(service_key), min(status)
+        INTO v_bot_count, v_bot_org, v_bot_key, v_bot_status
+        FROM bots
+        WHERE id = 'bot-g10b1-test' OR service_key = 'g10b1-test-bot-key';
+
+        IF v_bot_count > 0 THEN
+            IF v_bot_count > 1 OR v_bot_org != 'org-g10b1-test' OR v_bot_key != 'g10b1-test-bot-key' OR v_bot_status != 'ACTIVE' THEN
+                RAISE EXCEPTION 'FIXTURE_CONFLICT: Conflicting bot row exists (count=%, org=%, key=%, status=%)', v_bot_count, v_bot_org, v_bot_key, v_bot_status;
+            END IF;
+        ELSE
+            INSERT INTO bots (id, organization_id, name, service_key, status)
+            VALUES ('bot-g10b1-test', 'org-g10b1-test', 'G10-B1 Test Bot', 'g10b1-test-bot-key', 'ACTIVE');
+        END IF;
+
+        -- 3. Instance Fail-Closed / Idempotent Check
+        SELECT count(*), min(id), min(organization_id), min(bot_id), min(provider), min(external_instance_id), min(status)
+        INTO v_inst_count, v_inst_id, v_inst_org, v_inst_bot, v_inst_prov, v_inst_ext, v_inst_status
+        FROM instances
+        WHERE id = 'inst-g10b1-test' OR (provider = 'WUZAPI' AND external_instance_id = '{external_instance_id}');
+
+        IF v_inst_count > 0 THEN
+            IF v_inst_count > 1
+               OR v_inst_id != 'inst-g10b1-test'
+               OR v_inst_org != 'org-g10b1-test'
+               OR v_inst_bot != 'bot-g10b1-test'
+               OR v_inst_prov != 'WUZAPI'
+               OR v_inst_ext != '{external_instance_id}'
+               OR v_inst_status != 'ACTIVE' THEN
+                RAISE EXCEPTION 'FIXTURE_CONFLICT: Conflicting instance row exists (count=%, id=%, ext=%, status=%)', v_inst_count, v_inst_id, v_inst_ext, v_inst_status;
+            END IF;
+        ELSE
+            INSERT INTO instances (id, organization_id, bot_id, provider, external_instance_id, phone_number, status)
+            VALUES ('inst-g10b1-test', 'org-g10b1-test', 'bot-g10b1-test', 'WUZAPI', '{external_instance_id}', '5511999990000', 'ACTIVE');
+        END IF;
+    END $$;
+    """
+
+    exec_cmd = [
+        "docker", "exec", "g10b1_postgres", "psql", "-U", "g10b1_user", "-d", "platform_g10b1",
+        "-c", plpgsql_script
+    ]
+    exec_proc = run_cmd(exec_cmd, check=False)
+    if exec_proc.returncode != 0:
+        sys.stderr.write(f"FIXTURE_SEED_FAILED: {exec_proc.stderr}\n")
+        sys.exit(1)
+
+    # 5. Read-Back Verification Audit
+    audit_sql = """
+    SELECT 'organizations' AS tbl, count(*) FROM organizations UNION ALL
+    SELECT 'bots' AS tbl, count(*) FROM bots UNION ALL
+    SELECT 'instances' AS tbl, count(*) FROM instances UNION ALL
+    SELECT 'users' AS tbl, count(*) FROM users UNION ALL
+    SELECT 'enterprise_command_sessions' AS tbl, count(*) FROM enterprise_command_sessions UNION ALL
+    SELECT 'whatsapp_chat_enterprise_bindings' AS tbl, count(*) FROM whatsapp_chat_enterprise_bindings;
+    """
+    audit_cmd = [
+        "docker", "exec", "g10b1_postgres", "psql", "-U", "g10b1_user", "-d", "platform_g10b1",
+        "-c", audit_sql
+    ]
+    audit_proc = run_cmd(audit_cmd, check=True)
+    print(audit_proc.stdout)
+    print("Minimum test fixtures seeded successfully (1 Org, 1 Bot, 1 Instance).")
+
+
 def run_down() -> None:
     if not check_phase_authorized("down"):
         sys.exit(1)
@@ -261,6 +460,7 @@ def main() -> None:
     subparsers.add_parser("preflight", help="Run offline preflight check (P1 allowed)")
     subparsers.add_parser("prepare-wuzapi", help="Prepare local pinned WUZAPI image (P2-gated)")
     subparsers.add_parser("up", help="Start local g10b1 container stack (P2-gated)")
+    subparsers.add_parser("seed-fixtures", help="Seed minimum disposable DB fixtures (G10_B1_ALLOW_FIXTURE_SEEDING=1 mandatory, P2/P3/P4-gated)")
     subparsers.add_parser("status", help="Check g10b1 stack status (P1 allowed)")
 
     replay_parser = subparsers.add_parser("replay", help="Replay sanitized webhook fixture (P2-gated)")
@@ -278,6 +478,8 @@ def main() -> None:
         run_prepare_wuzapi()
     elif args.command == "up":
         run_up()
+    elif args.command == "seed-fixtures":
+        run_seed_fixtures()
     elif args.command == "status":
         run_status()
     elif args.command == "replay":
