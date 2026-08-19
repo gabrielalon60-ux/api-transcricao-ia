@@ -231,13 +231,14 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
 
     # Parse payload
     content_type = request.headers.get("content-type", "")
+    payload: dict[str, Any] = {}
     try:
         if "form-urlencoded" in content_type or "multipart/form-data" in content_type:
             form = await request.form()
-            json_data = form.get("jsonData")
-            payload = json.loads(json_data) if isinstance(json_data, str) else {}
+            payload = {k: v for k, v in form.items()}
         else:
-            payload = json.loads(body_bytes.decode("utf-8")) if body_bytes else {}
+            raw_payload = json.loads(body_bytes.decode("utf-8")) if body_bytes else {}
+            payload = raw_payload if isinstance(raw_payload, dict) else {}
     except Exception as exc:
         logger.warning(f"Malformed webhook payload: {exc}")
         raise HTTPException(status_code=400, detail="Malformed payload")
@@ -336,6 +337,7 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
                 else None
             )
             or json_data_envelope.get("id")
+            or json_data_envelope.get("external_message_id")
             or payload.get("external_message_id")
         )
         external_message_id = (

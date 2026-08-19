@@ -728,3 +728,182 @@ def test_webhook_parser_native_wuzapi_v108_idempotency_duplicate_suppression(mon
     finally:
         app.dependency_overrides.clear()
         engine.dispose()
+
+
+# ------------------------------------------------------------------
+# Native WUZAPI v1.0.8 application/x-www-form-urlencoded Tests
+# ------------------------------------------------------------------
+
+
+def test_webhook_parser_form_urlencoded_valid_message(monkeypatch, test_db_session):
+    import urllib.parse
+
+    secret = "test_wuzapi_secret"
+    settings = get_settings()
+    monkeypatch.setattr(settings, "wuzapi_webhook_secret", secret)
+
+    synthetic_inner = {
+        "event": {
+            "Info": {
+                "ID": "SYNTH-FORM-MSG-001",
+                "Sender": "226160000000000@lid",
+                "SenderAlt": "5511999997777@s.whatsapp.net",
+                "Type": "text",
+                "Timestamp": "2026-08-18T23:00:00-03:00",
+            },
+            "Message": {"conversation": "/cadastro SYNTHETIC_TEST_PW_123"},
+        },
+        "type": "Message",
+    }
+    form_data = {
+        "instanceName": "inst_synthetic_test",
+        "userID": "synth-wuzapi-user-id-form-1",
+        "jsonData": json.dumps(synthetic_inner),
+    }
+
+    body = urllib.parse.urlencode(form_data).encode("utf-8")
+    sig = generate_test_signature(body, secret)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/webhook",
+            content=body,
+            headers={
+                "Content-Type": "application/x-www-form-urlencoded",
+                "x-hmac-signature": sig,
+            },
+        )
+        # Reaches DB layer -> instance_not_found because synthetic ID is not seeded in test DB
+        assert response.status_code == 200
+        assert response.json().get("detail") == "instance_not_found"
+
+
+def test_webhook_parser_form_urlencoded_malformed_json_data(monkeypatch):
+    import urllib.parse
+
+    secret = "test_wuzapi_secret"
+    settings = get_settings()
+    monkeypatch.setattr(settings, "wuzapi_webhook_secret", secret)
+
+    form_data = {
+        "instanceName": "inst_synthetic_test",
+        "userID": "synth-wuzapi-user-id-form-2",
+        "jsonData": "malformed-{json",
+    }
+
+    body = urllib.parse.urlencode(form_data).encode("utf-8")
+    sig = generate_test_signature(body, secret)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/webhook",
+            content=body,
+            headers={
+                "Content-Type": "application/x-www-form-urlencoded",
+                "x-hmac-signature": sig,
+            },
+        )
+        assert response.status_code == 400
+        assert "Malformed jsonData payload" in response.json()["detail"]
+
+
+def test_webhook_parser_form_urlencoded_non_object_json_data(monkeypatch):
+    import urllib.parse
+
+    secret = "test_wuzapi_secret"
+    settings = get_settings()
+    monkeypatch.setattr(settings, "wuzapi_webhook_secret", secret)
+
+    form_data = {
+        "instanceName": "inst_synthetic_test",
+        "userID": "synth-wuzapi-user-id-form-3",
+        "jsonData": json.dumps(["a", "list"]),
+    }
+
+    body = urllib.parse.urlencode(form_data).encode("utf-8")
+    sig = generate_test_signature(body, secret)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/webhook",
+            content=body,
+            headers={
+                "Content-Type": "application/x-www-form-urlencoded",
+                "x-hmac-signature": sig,
+            },
+        )
+        assert response.status_code == 400
+        assert "jsonData must be a JSON object" in response.json()["detail"]
+
+
+def test_webhook_parser_form_urlencoded_missing_user_id(monkeypatch):
+    import urllib.parse
+
+    secret = "test_wuzapi_secret"
+    settings = get_settings()
+    monkeypatch.setattr(settings, "wuzapi_webhook_secret", secret)
+
+    synthetic_inner = {
+        "event": {
+            "Info": {
+                "ID": "SYNTH-FORM-MSG-004",
+                "Sender": "5511999997777@s.whatsapp.net",
+                "Type": "text",
+            },
+            "Message": {"conversation": "Oi"},
+        },
+        "type": "Message",
+    }
+    form_data = {
+        "instanceName": "inst_synthetic_test",
+        "userID": "",  # Empty userID
+        "jsonData": json.dumps(synthetic_inner),
+    }
+
+    body = urllib.parse.urlencode(form_data).encode("utf-8")
+    sig = generate_test_signature(body, secret)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/webhook",
+            content=body,
+            headers={
+                "Content-Type": "application/x-www-form-urlencoded",
+                "x-hmac-signature": sig,
+            },
+        )
+        assert response.status_code == 400
+        assert "Missing required source fields" in response.json()["detail"]
+
+
+def test_webhook_parser_form_urlencoded_lifecycle_event_ignored(monkeypatch, test_db_session):
+    import urllib.parse
+
+    secret = "test_wuzapi_secret"
+    settings = get_settings()
+    monkeypatch.setattr(settings, "wuzapi_webhook_secret", secret)
+
+    synthetic_inner = {
+        "event": {"Chat": "226160000000000@lid", "Sender": "226160000000000@lid", "Type": "ChatPresence"},
+        "type": "ChatPresence",
+    }
+    form_data = {
+        "instanceName": "inst_synthetic_test",
+        "userID": "synth-wuzapi-user-id-form-5",
+        "jsonData": json.dumps(synthetic_inner),
+    }
+
+    body = urllib.parse.urlencode(form_data).encode("utf-8")
+    sig = generate_test_signature(body, secret)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/webhook",
+            content=body,
+            headers={
+                "Content-Type": "application/x-www-form-urlencoded",
+                "x-hmac-signature": sig,
+            },
+        )
+        assert response.status_code == 200
+        assert response.json().get("detail") == "ignored_chatpresence"
