@@ -204,31 +204,43 @@ class ExtractionDispatcher:
     async def process_item(self, db: Session, item: ProcessingItem, mock_file_bytes: bytes | None = None, local_buffer_path: str | None = None) -> Optional[ProcessingItem]:
         """Processes a claimed ProcessingItem through Gate 3 extraction with token guard and commit-safe cleanup."""
         async with self.semaphore:
+            if db.new or db.dirty or db.deleted:
+                raise RuntimeError("ExtractionDispatcher requires a clean database session with no pending uncommitted changes")
+
             evt = db.query(Event).filter_by(id=item.event_id).first()
             correlation_id = evt.correlation_id if evt else item.correlation_id
             bot_instance_id = item.instance_id
             dispatched_token = item.extraction_claim_token
+            item_id = item.id
+            received_at = item.message_received_at or datetime.now(timezone.utc)
 
             file_bytes = mock_file_bytes or b"MOCK_DOCUMENT_BINARY_CONTENT"
             filename = item.original_filename or "document.jpg"
             mime_type = item.file_mime_type or "image/jpeg"
 
+            # End the read-only transaction before awaiting external Transcription/Gemini I/O
+            if db.in_transaction():
+                db.rollback()
+
+            if db.in_transaction():
+                raise RuntimeError("Database transaction remained open before external Transcription I/O")
+
             try:
                 res_payload = await self.transcription_client.extract(
-                    processing_item_id=item.id,
+                    processing_item_id=item_id,
                     bot_instance_id=bot_instance_id,
                     correlation_id=correlation_id,
-                    received_at=item.message_received_at or datetime.now(timezone.utc),
+                    received_at=received_at,
                     file_bytes=file_bytes,
                     filename=filename,
                     mime_type=mime_type,
                 )
-                updated_item = apply_extraction_success(db, item.id, dispatched_token, res_payload, local_buffer_path=local_buffer_path)
+                updated_item = apply_extraction_success(db, item_id, dispatched_token, res_payload, local_buffer_path=local_buffer_path)
                 return updated_item or item
             except TranscriptionClientError as exc:
-                updated_item = apply_extraction_failure(db, item.id, dispatched_token, exc.error_code or "EXTRACTION_ERROR", exc.retryable, local_buffer_path=local_buffer_path)
+                updated_item = apply_extraction_failure(db, item_id, dispatched_token, exc.error_code or "EXTRACTION_ERROR", exc.retryable, local_buffer_path=local_buffer_path)
                 return updated_item or item
             except Exception as exc:
                 logger.error(f"Unexpected extraction dispatcher error: {exc}")
-                updated_item = apply_extraction_failure(db, item.id, dispatched_token, "UNEXPECTED_ERROR", retryable=True, local_buffer_path=local_buffer_path)
+                updated_item = apply_extraction_failure(db, item_id, dispatched_token, "UNEXPECTED_ERROR", retryable=True, local_buffer_path=local_buffer_path)
                 return updated_item or item
