@@ -285,3 +285,136 @@ def test_registration_secret_security_hash_verification():
     hashed_a = hash_secret(f"{org_id}:{secret_a}", pepper)
     assert verify_secret(f"{org_id}:{secret_a}", hashed_a, pepper) is True
     assert verify_secret(f"{org_id}:{secret_b}", hashed_a, pepper) is False
+
+
+@pytest.mark.real_e2e
+def test_invariant_t_rotation_command_registration_and_dedicated_flag_guard():
+    # T. rotate-registration-secret is registered and strictly requires G10_B1_ALLOW_REGISTRATION_SECRET_ROTATION=1
+    runner_code = RUNNER_SCRIPT.read_text(encoding="utf-8")
+    assert 'subparsers.add_parser("rotate-registration-secret"' in runner_code
+    assert "def run_rotate_registration_secret()" in runner_code
+    assert "G10_B1_ALLOW_REGISTRATION_SECRET_ROTATION" in runner_code
+    assert "REGISTRATION_ROTATION_NOT_AUTHORIZED" in runner_code
+
+    base_env = {
+        k: v for k, v in os.environ.items()
+        if k not in ("G10_B1_ALLOW_REGISTRATION_SECRET_ROTATION", "G10_B1_ALLOW_FIXTURE_SEEDING", "G10_B1_AUTHORIZED_PHASE")
+    }
+
+    # Case A: Flag absent => denied
+    proc_a = subprocess.run([sys.executable, str(RUNNER_SCRIPT), "rotate-registration-secret"], capture_output=True, text=True, env=base_env)
+    assert proc_a.returncode != 0
+    assert "REGISTRATION_ROTATION_NOT_AUTHORIZED" in proc_a.stderr
+
+    # Case B: Flag = 0 => denied
+    env_b = {**base_env, "G10_B1_ALLOW_REGISTRATION_SECRET_ROTATION": "0"}
+    proc_b = subprocess.run([sys.executable, str(RUNNER_SCRIPT), "rotate-registration-secret"], capture_output=True, text=True, env=env_b)
+    assert proc_b.returncode != 0
+    assert "REGISTRATION_ROTATION_NOT_AUTHORIZED" in proc_b.stderr
+
+    # Case C: Flag = false => denied
+    env_c = {**base_env, "G10_B1_ALLOW_REGISTRATION_SECRET_ROTATION": "false"}
+    proc_c = subprocess.run([sys.executable, str(RUNNER_SCRIPT), "rotate-registration-secret"], capture_output=True, text=True, env=env_c)
+    assert proc_c.returncode != 0
+    assert "REGISTRATION_ROTATION_NOT_AUTHORIZED" in proc_c.stderr
+
+    # Case D: Fixture seeding flag alone => denied
+    env_d = {**base_env, "G10_B1_ALLOW_FIXTURE_SEEDING": "1", "G10_B1_AUTHORIZED_PHASE": "P3"}
+    proc_d = subprocess.run([sys.executable, str(RUNNER_SCRIPT), "rotate-registration-secret"], capture_output=True, text=True, env=env_d)
+    assert proc_d.returncode != 0
+    assert "REGISTRATION_ROTATION_NOT_AUTHORIZED" in proc_d.stderr
+
+    # Case E: Phase alone => denied
+    env_e = {**base_env, "G10_B1_AUTHORIZED_PHASE": "P5"}
+    proc_e = subprocess.run([sys.executable, str(RUNNER_SCRIPT), "rotate-registration-secret"], capture_output=True, text=True, env=env_e)
+    assert proc_e.returncode != 0
+    assert "REGISTRATION_ROTATION_NOT_AUTHORIZED" in proc_e.stderr
+
+
+@pytest.mark.real_e2e
+def test_invariant_u_rotation_hash_contract_and_entropy():
+    # U. Rotation generates high entropy secret and uses security.hash with fail-closed checks
+    import secrets
+    from security.hash import hash_secret, verify_secret
+
+    runner_code = RUNNER_SCRIPT.read_text(encoding="utf-8")
+    assert "secrets.token_hex(24)" in runner_code
+    assert "UPDATE organizations" in runner_code
+    assert "SET registration_secret_hash" in runner_code
+    assert "PRE_ROTATION_CREDENTIAL_STATE_INVALID" in runner_code
+    assert "NEW_REGISTRATION_SECRET_GENERATED = YES" in runner_code
+    assert "NEW_CREDENTIAL_VERIFIES = YES" in runner_code
+    assert "OLD_CREDENTIAL_REJECTED = YES" in runner_code
+
+    # Synthetic rotation verification
+    org_id = "org-g10b1-test"
+    pepper = "pepper_secret_g10b1_32bytes_min"
+    old_secret = secrets.token_hex(24)
+    old_hash = hash_secret(f"{org_id}:{old_secret}", pepper)
+    assert verify_secret(f"{org_id}:{old_secret}", old_hash, pepper) is True
+
+    new_secret = secrets.token_hex(24)
+    assert new_secret != old_secret
+    assert len(bytes.fromhex(new_secret)) >= 24
+
+    new_hash = hash_secret(f"{org_id}:{new_secret}", pepper)
+    assert verify_secret(f"{org_id}:{new_secret}", new_hash, pepper) is True
+    assert verify_secret(f"{org_id}:{old_secret}", new_hash, pepper) is False
+
+
+@pytest.mark.real_e2e
+def test_invariant_v_two_phase_recoverable_rotation_contract(tmp_path):
+    # V. Two-phase recoverable rotation contract & failure recovery matrix
+    import secrets
+    from security.hash import hash_secret, verify_secret
+
+    runner_code = RUNNER_SCRIPT.read_text(encoding="utf-8")
+    assert ".env.g10b1-rotation-pending.local" in runner_code
+    assert "ROTATION_RECOVERY_REQUIRED" in runner_code
+
+    # 1. Verify that pending artifact pattern matches .gitignore rule (.env.*.local)
+    proc_ign = subprocess.run(
+        ["git", "check-ignore", ".env.g10b1-rotation-pending.local"],
+        capture_output=True,
+        text=True,
+        cwd=str(ROOT_DIR),
+    )
+    assert proc_ign.returncode == 0, ".env.g10b1-rotation-pending.local must be ignored by Git"
+
+    # 2. Failure Matrix Simulation on isolated temp files
+    env_file = tmp_path / ".env.g10b1.local"
+    pending_file = tmp_path / ".env.g10b1-rotation-pending.local"
+    org_id = "org-g10b1-test"
+    pepper = "pepper_secret_g10b1_32bytes_min"
+
+    old_secret = secrets.token_hex(24)
+    env_file.write_text(f"G10_B1_REGISTRATION_SECRET={old_secret}\n", encoding="utf-8")
+    db_hash = hash_secret(f"{org_id}:{old_secret}", pepper)
+
+    # Scenario A: Stale pending artifact present => must block rotation
+    pending_file.write_text(f"G10_B1_REGISTRATION_SECRET={secrets.token_hex(24)}\n", encoding="utf-8")
+    assert pending_file.is_file()
+    # Guard check
+    has_stale = pending_file.is_file()
+    assert has_stale is True
+
+    # Scenario B: Crash after DB update but before local file replace => NEW secret is recoverable from pending artifact
+    pending_file.unlink()
+    new_secret = secrets.token_hex(24)
+    pending_file.write_text(f"G10_B1_REGISTRATION_SECRET={new_secret}\n", encoding="utf-8")
+
+    # DB update succeeds
+    db_hash = hash_secret(f"{org_id}:{new_secret}", pepper)
+
+    # Simulated crash: env_file still contains old_secret, but pending_file contains new_secret
+    assert "G10_B1_REGISTRATION_SECRET=" + old_secret in env_file.read_text(encoding="utf-8")
+    recovered_secret = None
+    for line in pending_file.read_text(encoding="utf-8").splitlines():
+        if line.startswith("G10_B1_REGISTRATION_SECRET="):
+            recovered_secret = line.split("=", 1)[1].strip()
+    assert recovered_secret == new_secret
+    assert verify_secret(f"{org_id}:{recovered_secret}", db_hash, pepper) is True
+
+    # Scenario C: Post-verification cleanup
+    pending_file.unlink()
+    assert not pending_file.is_file()

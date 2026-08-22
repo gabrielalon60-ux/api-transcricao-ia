@@ -479,6 +479,160 @@ def run_seed_fixtures() -> None:
     print("Minimum test fixtures seeded successfully (1 Org, 1 Bot, 1 Instance).")
 
 
+def run_rotate_registration_secret() -> None:
+    # 1. Mandatory Dedicated Registration Secret Rotation Authorization Guard
+    allow_rotation = os.environ.get("G10_B1_ALLOW_REGISTRATION_SECRET_ROTATION", "").strip()
+    if allow_rotation != "1":
+        sys.stderr.write(
+            "REGISTRATION_ROTATION_NOT_AUTHORIZED: Command 'rotate-registration-secret' requires explicit environment variable G10_B1_ALLOW_REGISTRATION_SECRET_ROTATION=1.\n"
+        )
+        sys.exit(1)
+
+    print("=== ROTATING G10-B1 REGISTRATION SECRET (DISPOSABLE DB ONLY) ===")
+
+    target_env_file = ENV_FILE if ENV_FILE.is_file() else (ROOT_DIR / ".env.g10b1.local")
+    pending_file = target_env_file.parent / ".env.g10b1-rotation-pending.local"
+
+    # Stale pending rotation artifact guard
+    if pending_file.is_file():
+        sys.stderr.write(
+            f"ROTATION_RECOVERY_REQUIRED: A pending rotation artifact was found at '{pending_file.name}'. "
+            "Resolve pending state before initiating a new rotation.\n"
+        )
+        sys.exit(1)
+
+    # 2. Strict Docker & PostgreSQL Safety Identity Guard
+    inspect_cmd = [
+        "docker", "inspect", "g10b1_postgres",
+        "--format", "{{index .Config.Labels \"com.docker.compose.project\"}}"
+    ]
+    inspect_proc = run_cmd(inspect_cmd, check=False)
+    if inspect_proc.returncode != 0 or inspect_proc.stdout.strip() != PROJECT_NAME:
+        sys.stderr.write(
+            f"SAFETY_CHECK_FAILED: Container g10b1_postgres is not owned by compose project '{PROJECT_NAME}'. Refusing rotation.\n"
+        )
+        sys.exit(1)
+
+    check_cmd = [
+        "docker", "exec", "g10b1_postgres", "psql", "-U", "g10b1_user", "-d", "platform_g10b1",
+        "-t", "-A", "-c", "SELECT current_database() || '|' || current_user || '|' || version();"
+    ]
+    proc = run_cmd(check_cmd, check=False)
+    if proc.returncode != 0 or not proc.stdout.strip():
+        sys.stderr.write(f"SAFETY_CHECK_FAILED: Unable to verify disposable DB identity: {proc.stderr}\n")
+        sys.exit(1)
+
+    db_ident = proc.stdout.strip()
+    parts = db_ident.split("|")
+    db_name = parts[0] if len(parts) > 0 else ""
+    db_user = parts[1] if len(parts) > 1 else ""
+    db_ver = parts[2] if len(parts) > 2 else ""
+
+    if db_name != "platform_g10b1" or db_user != "g10b1_user" or "PostgreSQL 15" not in db_ver:
+        sys.stderr.write(f"PROHIBITED_TARGET: Refusing rotation on non-disposable target: {db_ident}\n")
+        sys.exit(1)
+
+    # 3. Read Current Stored Hash and Validate Pre-conditions
+    fetch_hash_cmd = [
+        "docker", "exec", "g10b1_postgres", "psql", "-U", "g10b1_user", "-d", "platform_g10b1",
+        "-t", "-A", "-c", "SELECT registration_secret_hash FROM organizations WHERE id='org-g10b1-test';"
+    ]
+    hash_proc = run_cmd(fetch_hash_cmd, check=False)
+    stored_hash = hash_proc.stdout.strip()
+    if hash_proc.returncode != 0 or not stored_hash:
+        sys.stderr.write("PRE_ROTATION_CREDENTIAL_STATE_INVALID: Organization 'org-g10b1-test' or stored hash missing.\n")
+        sys.exit(1)
+
+    sec_path = str(ROOT_DIR / "packages" / "security" / "src")
+    if sec_path not in sys.path:
+        sys.path.insert(0, sec_path)
+    from security.hash import hash_secret, verify_secret
+    import secrets
+
+    old_secret = get_local_registration_secret()
+    if not old_secret:
+        sys.stderr.write("PRE_ROTATION_CREDENTIAL_STATE_INVALID: Local registration secret not found.\n")
+        sys.exit(1)
+
+    pepper = get_local_registration_pepper()
+    if not verify_secret("org-g10b1-test:" + old_secret, stored_hash, pepper):
+        sys.stderr.write("PRE_ROTATION_CREDENTIAL_STATE_INVALID: Current local secret does not verify stored hash.\n")
+        sys.exit(1)
+
+    # 4. Generate New High-Entropy Secret and Compute New Hash
+    new_secret = secrets.token_hex(24)
+    if new_secret == old_secret:
+        sys.stderr.write("ROTATION_FAILED: New secret must differ from old secret.\n")
+        sys.exit(1)
+
+    new_hash = hash_secret("org-g10b1-test:" + new_secret, pepper)
+    if not verify_secret("org-g10b1-test:" + new_secret, new_hash, pepper):
+        sys.stderr.write("ROTATION_FAILED: Internal verification of new hash failed.\n")
+        sys.exit(1)
+
+    # 5. Phase 1: Write Ignored Pending Recovery Artifact (Recoverable if crash occurs during/after DB update)
+    pending_content = f"G10_B1_REGISTRATION_SECRET={new_secret}\n"
+    pending_file.write_text(pending_content, encoding="utf-8")
+    if not pending_file.is_file() or not pending_file.read_text(encoding="utf-8").strip():
+        sys.stderr.write("ROTATION_FAILED: Failed to create pending recovery artifact.\n")
+        sys.exit(1)
+
+    # 6. Execute DB UPDATE within Single Organization Target
+    update_sql = f"""
+    UPDATE organizations
+    SET registration_secret_hash = '{new_hash}', updated_at = NOW()
+    WHERE id = 'org-g10b1-test';
+    """
+    update_cmd = [
+        "docker", "exec", "g10b1_postgres", "psql", "-U", "g10b1_user", "-d", "platform_g10b1",
+        "-c", update_sql
+    ]
+    update_proc = run_cmd(update_cmd, check=False)
+    if update_proc.returncode != 0:
+        sys.stderr.write(f"ROTATION_DB_UPDATE_FAILED: {update_proc.stderr}\n")
+        sys.exit(1)
+
+    # 7. Phase 2: Atomically Promote New Secret to Local Configuration File
+    lines = []
+    if target_env_file.is_file():
+        lines = target_env_file.read_text(encoding="utf-8").splitlines()
+
+    replaced = False
+    new_lines = []
+    for line in lines:
+        if line.strip().startswith("G10_B1_REGISTRATION_SECRET="):
+            new_lines.append(f"G10_B1_REGISTRATION_SECRET={new_secret}")
+            replaced = True
+        else:
+            new_lines.append(line)
+    if not replaced:
+        new_lines.append(f"G10_B1_REGISTRATION_SECRET={new_secret}")
+
+    tmp_env = target_env_file.parent / ".env.g10b1-tmp.local"
+    tmp_env.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
+    os.replace(str(tmp_env), str(target_env_file))
+
+    # 8. Post-Rotation Verification
+    readback_proc = run_cmd(fetch_hash_cmd, check=True)
+    readback_hash = readback_proc.stdout.strip()
+
+    new_verifies = verify_secret("org-g10b1-test:" + new_secret, readback_hash, pepper)
+    old_rejected = not verify_secret("org-g10b1-test:" + old_secret, readback_hash, pepper)
+
+    if not new_verifies or not old_rejected:
+        sys.stderr.write("POST_ROTATION_VERIFICATION_FAILED: Hash verification mismatch.\n")
+        sys.exit(1)
+
+    # 9. Clean up Pending Recovery Artifact after Complete Verification
+    if pending_file.is_file():
+        pending_file.unlink()
+
+    print("NEW_REGISTRATION_SECRET_GENERATED = YES")
+    print("NEW_CREDENTIAL_VERIFIES = YES")
+    print("OLD_CREDENTIAL_REJECTED = YES")
+    print("Registration secret rotated successfully.")
+
+
 def run_down() -> None:
     if not check_phase_authorized("down"):
         sys.exit(1)
@@ -515,6 +669,7 @@ def main() -> None:
     subparsers.add_parser("prepare-wuzapi", help="Prepare local pinned WUZAPI image (P2-gated)")
     subparsers.add_parser("up", help="Start local g10b1 container stack (P2-gated)")
     subparsers.add_parser("seed-fixtures", help="Seed minimum disposable DB fixtures (G10_B1_ALLOW_FIXTURE_SEEDING=1 mandatory, P2/P3/P4-gated)")
+    subparsers.add_parser("rotate-registration-secret", help="Rotate local registration secret (G10_B1_ALLOW_REGISTRATION_SECRET_ROTATION=1 mandatory)")
     subparsers.add_parser("status", help="Check g10b1 stack status (P1 allowed)")
 
     replay_parser = subparsers.add_parser("replay", help="Replay sanitized webhook fixture (P2-gated)")
@@ -534,6 +689,8 @@ def main() -> None:
         run_up()
     elif args.command == "seed-fixtures":
         run_seed_fixtures()
+    elif args.command == "rotate-registration-secret":
+        run_rotate_registration_secret()
     elif args.command == "status":
         run_status()
     elif args.command == "replay":
