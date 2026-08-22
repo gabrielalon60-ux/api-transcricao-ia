@@ -907,3 +907,300 @@ def test_webhook_parser_form_urlencoded_lifecycle_event_ignored(monkeypatch, tes
         )
         assert response.status_code == 200
         assert response.json().get("detail") == "ignored_chatpresence"
+
+
+# ------------------------------------------------------------------
+# Three-Mode Matrix & Mislabeled-JSON Robustness Tests
+# ------------------------------------------------------------------
+
+
+def test_mode_1_json_header_json_outer_envelope(monkeypatch, test_db_session):
+    # Mode 1: Content-Type: application/json, body is JSON outer envelope
+    secret = "test_wuzapi_secret"
+    settings = get_settings()
+    monkeypatch.setattr(settings, "wuzapi_webhook_secret", secret)
+
+    synthetic_inner = {
+        "event": {
+            "Info": {
+                "ID": "SYNTH-MODE1-MSG-001",
+                "Sender": "5511999991111@s.whatsapp.net",
+                "Type": "text",
+            },
+            "Message": {"conversation": "Modo 1 JSON puro"},
+        },
+        "type": "Message",
+    }
+    outer_payload = {
+        "instanceName": "g10b1_synthetic_mode1",
+        "userID": "synth-wuzapi-user-id-mode1",
+        "jsonData": json.dumps(synthetic_inner),
+    }
+
+    body = json.dumps(outer_payload).encode("utf-8")
+    sig = generate_test_signature(body, secret)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/webhook",
+            content=body,
+            headers={
+                "Content-Type": "application/json",
+                "x-hmac-signature": sig,
+            },
+        )
+        assert response.status_code == 200
+        assert response.json().get("detail") == "instance_not_found"
+
+
+def test_mode_2_form_header_genuine_form_body(monkeypatch, test_db_session):
+    # Mode 2: Content-Type: application/x-www-form-urlencoded, body is genuine form-encoded
+    import urllib.parse
+
+    secret = "test_wuzapi_secret"
+    settings = get_settings()
+    monkeypatch.setattr(settings, "wuzapi_webhook_secret", secret)
+
+    synthetic_inner = {
+        "event": {
+            "Info": {
+                "ID": "SYNTH-MODE2-MSG-002",
+                "Sender": "5511999992222@s.whatsapp.net",
+                "Type": "text",
+            },
+            "Message": {"conversation": "Modo 2 Form genuino"},
+        },
+        "type": "Message",
+    }
+    form_data = {
+        "instanceName": "g10b1_synthetic_mode2",
+        "userID": "synth-wuzapi-user-id-mode2",
+        "jsonData": json.dumps(synthetic_inner),
+    }
+
+    body = urllib.parse.urlencode(form_data).encode("utf-8")
+    sig = generate_test_signature(body, secret)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/webhook",
+            content=body,
+            headers={
+                "Content-Type": "application/x-www-form-urlencoded",
+                "x-hmac-signature": sig,
+            },
+        )
+        assert response.status_code == 200
+        assert response.json().get("detail") == "instance_not_found"
+
+
+def test_mode_3_physical_wuzapi_form_header_json_body(monkeypatch, test_db_session):
+    # Mode 3 (Physical WUZAPI regression): Content-Type: application/x-www-form-urlencoded, body is JSON outer envelope
+    secret = "test_wuzapi_secret"
+    settings = get_settings()
+    monkeypatch.setattr(settings, "wuzapi_webhook_secret", secret)
+
+    synthetic_inner = {
+        "event": {
+            "Info": {
+                "ID": "SYNTH-MODE3-MSG-003",
+                "Sender": "5511999993333@s.whatsapp.net",
+                "Type": "text",
+            },
+            "Message": {"conversation": "Modo 3 Physical WUZAPI mislabeled JSON"},
+        },
+        "type": "Message",
+    }
+    outer_payload = {
+        "instanceName": "g10b1_synthetic_mode3",
+        "userID": "synth-wuzapi-user-id-mode3",
+        "jsonData": json.dumps(synthetic_inner),
+    }
+
+    body = json.dumps(outer_payload).encode("utf-8")
+    sig = generate_test_signature(body, secret)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/webhook",
+            content=body,
+            headers={
+                "Content-Type": "application/x-www-form-urlencoded",
+                "x-hmac-signature": sig,
+            },
+        )
+        assert response.status_code == 200
+        assert response.json().get("detail") == "instance_not_found"
+
+
+def test_mislabeled_json_with_leading_whitespace(monkeypatch, test_db_session):
+    # Tests leading whitespace before JSON body with form-urlencoded header
+    secret = "test_wuzapi_secret"
+    settings = get_settings()
+    monkeypatch.setattr(settings, "wuzapi_webhook_secret", secret)
+
+    synthetic_inner = {
+        "event": {
+            "Info": {
+                "ID": "SYNTH-WS-MSG-004",
+                "Sender": "5511999994444@s.whatsapp.net",
+                "Type": "text",
+            },
+            "Message": {"conversation": "Leading whitespace test"},
+        },
+        "type": "Message",
+    }
+    outer_payload = {
+        "instanceName": "g10b1_synthetic_ws",
+        "userID": "synth-wuzapi-user-id-ws",
+        "jsonData": json.dumps(synthetic_inner),
+    }
+
+    body = b"  \r\n\t  " + json.dumps(outer_payload).encode("utf-8")
+    sig = generate_test_signature(body, secret)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/webhook",
+            content=body,
+            headers={
+                "Content-Type": "application/x-www-form-urlencoded",
+                "x-hmac-signature": sig,
+            },
+        )
+        assert response.status_code == 200
+        assert response.json().get("detail") == "instance_not_found"
+
+
+def test_mislabeled_json_malformed_json_fails_400(monkeypatch):
+    # Tests that a body starting with "{" that is malformed JSON fails 400 (fail-closed)
+    secret = "test_wuzapi_secret"
+    settings = get_settings()
+    monkeypatch.setattr(settings, "wuzapi_webhook_secret", secret)
+
+    body = b'{"instanceName": "broken_json", "userID": '
+    sig = generate_test_signature(body, secret)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/webhook",
+            content=body,
+            headers={
+                "Content-Type": "application/x-www-form-urlencoded",
+                "x-hmac-signature": sig,
+            },
+        )
+        assert response.status_code == 400
+        assert "Malformed payload" in response.json()["detail"]
+
+
+def test_mislabeled_json_non_object_fails_400(monkeypatch):
+    # Tests that a body starting with "[" (JSON list) fails 400
+    secret = "test_wuzapi_secret"
+    settings = get_settings()
+    monkeypatch.setattr(settings, "wuzapi_webhook_secret", secret)
+
+    body = json.dumps(["element1", "element2"]).encode("utf-8")
+    sig = generate_test_signature(body, secret)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/webhook",
+            content=body,
+            headers={
+                "Content-Type": "application/x-www-form-urlencoded",
+                "x-hmac-signature": sig,
+            },
+        )
+        assert response.status_code == 400
+        assert "JSON payload must be an object" in response.json()["detail"]
+
+
+def test_mislabeled_json_missing_info_id_fails_400(monkeypatch):
+    # Tests that a Mode 3 payload missing Info.ID fails 400
+    secret = "test_wuzapi_secret"
+    settings = get_settings()
+    monkeypatch.setattr(settings, "wuzapi_webhook_secret", secret)
+
+    synthetic_inner = {
+        "event": {
+            "Info": {
+                "Sender": "5511999995555@s.whatsapp.net",
+                "Type": "text",
+            },
+            "Message": {"conversation": "No message ID"},
+        },
+        "type": "Message",
+    }
+    outer_payload = {
+        "instanceName": "g10b1_synthetic_noid",
+        "userID": "synth-wuzapi-user-id-noid",
+        "jsonData": json.dumps(synthetic_inner),
+    }
+
+    body = json.dumps(outer_payload).encode("utf-8")
+    sig = generate_test_signature(body, secret)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/webhook",
+            content=body,
+            headers={
+                "Content-Type": "application/x-www-form-urlencoded",
+                "x-hmac-signature": sig,
+            },
+        )
+        assert response.status_code == 400
+        assert "Missing required source fields" in response.json()["detail"]
+
+
+def test_mislabeled_json_duplicate_replay_idempotency(monkeypatch, test_db_session):
+    # Tests that sending duplicate Mode 3 payload results in idempotent duplicate handling
+    secret = "test_wuzapi_secret"
+    settings = get_settings()
+    monkeypatch.setattr(settings, "wuzapi_webhook_secret", secret)
+
+    synthetic_inner = {
+        "event": {
+            "Info": {
+                "ID": "SYNTH-DUP-MSG-006",
+                "Sender": "5511999996666@s.whatsapp.net",
+                "Type": "text",
+            },
+            "Message": {"conversation": "Duplicate idempotency test"},
+        },
+        "type": "Message",
+    }
+    outer_payload = {
+        "instanceName": "g10b1_synthetic_dup",
+        "userID": "synth-wuzapi-user-id-dup",
+        "jsonData": json.dumps(synthetic_inner),
+    }
+
+    body = json.dumps(outer_payload).encode("utf-8")
+    sig = generate_test_signature(body, secret)
+
+    with TestClient(app) as client:
+        # First send
+        resp1 = client.post(
+            "/webhook",
+            content=body,
+            headers={
+                "Content-Type": "application/x-www-form-urlencoded",
+                "x-hmac-signature": sig,
+            },
+        )
+        assert resp1.status_code == 200
+        assert resp1.json().get("detail") == "instance_not_found"
+
+        # Duplicate send
+        resp2 = client.post(
+            "/webhook",
+            content=body,
+            headers={
+                "Content-Type": "application/x-www-form-urlencoded",
+                "x-hmac-signature": sig,
+            },
+        )
+        assert resp2.status_code == 200
+        assert resp2.json().get("detail") == "idempotent duplicate"
