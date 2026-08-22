@@ -18,7 +18,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from db.models import Base
-from orchestrator.main import app, extract_file_info, get_db
+from orchestrator.main import app, extract_file_info, get_db, normalize_phone_number
 from orchestrator.config import get_settings
 
 
@@ -1204,3 +1204,508 @@ def test_mislabeled_json_duplicate_replay_idempotency(monkeypatch, test_db_sessi
         )
         assert resp2.status_code == 200
         assert resp2.json().get("detail") == "idempotent duplicate"
+
+
+def test_zero_secret_leakage_in_logs(monkeypatch, capsys, test_db_session):
+    secret = "test_webhook_secret_key_32bytes_len"
+    settings = get_settings()
+    monkeypatch.setattr(settings, "wuzapi_webhook_secret", secret)
+    synthetic_secret = "synthetic_sec_abc123_high_entropy_48chars"
+    synthetic_phone = "5511999990001"
+
+    synthetic_inner = {
+        "event": {
+            "Info": {
+                "ID": "SYNTH_DIAG_MSG_001",
+                "Sender": f"{synthetic_phone}:1@s.whatsapp.net",
+            },
+            "Message": {"conversation": f"/cadastro {synthetic_secret}"},
+        },
+        "type": "Message",
+    }
+    outer_payload = {
+        "instanceName": "g10b1_synthetic_diag",
+        "userID": "synth-wuzapi-user-id-diag",
+        "jsonData": json.dumps(synthetic_inner),
+    }
+
+    body = json.dumps(outer_payload).encode("utf-8")
+    sig = generate_test_signature(body, secret)
+
+    with TestClient(app) as client:
+        resp = client.post(
+            "/webhook",
+            content=body,
+            headers={
+                "Content-Type": "application/x-www-form-urlencoded",
+                "x-hmac-signature": sig,
+            },
+        )
+        assert resp.status_code == 200
+
+    captured = capsys.readouterr()
+    all_log_text = captured.err + " " + captured.out
+    # Assert zero leakage of sensitive data
+    assert synthetic_secret not in all_log_text
+    assert f"/cadastro {synthetic_secret}" not in all_log_text
+    assert synthetic_phone not in all_log_text
+    assert secret not in all_log_text
+    assert sig not in all_log_text
+
+
+# ------------------------------------------------------------------
+# Mode 4: Top-Level Native WUZAPI Event Envelope Tests
+# ------------------------------------------------------------------
+
+
+def test_mode4_top_level_native_wuzapi_envelope_success(monkeypatch, test_db_session):
+    secret = "test_wuzapi_secret"
+    settings = get_settings()
+    monkeypatch.setattr(settings, "wuzapi_webhook_secret", secret)
+
+    payload = {
+        "instanceName": "g10b1_mode4_test",
+        "userID": "synth-wuzapi-user-id-mode4",
+        "type": "Message",
+        "event": {
+            "Info": {
+                "ID": "SYNTH-MODE4-MSG-001",
+                "Sender": "5511999991234@s.whatsapp.net",
+                "Type": "text",
+            },
+            "Message": {"conversation": "Hello from top-level event"},
+        },
+    }
+    body = json.dumps(payload).encode("utf-8")
+    sig = generate_test_signature(body, secret)
+
+    with TestClient(app) as client:
+        resp = client.post(
+            "/webhook",
+            content=body,
+            headers={
+                "Content-Type": "application/json",
+                "x-hmac-signature": sig,
+            },
+        )
+        assert resp.status_code == 200
+        assert resp.json().get("detail") == "instance_not_found"
+
+
+def test_mode4_top_level_registration_route(monkeypatch, test_db_session):
+    secret = "test_wuzapi_secret"
+    settings = get_settings()
+    monkeypatch.setattr(settings, "wuzapi_webhook_secret", secret)
+
+    payload = {
+        "instanceName": "g10b1_mode4_reg",
+        "userID": "synth-wuzapi-user-id-reg",
+        "type": "Message",
+        "event": {
+            "Info": {
+                "ID": "SYNTH-MODE4-MSG-REG",
+                "Sender": "5511999994321@s.whatsapp.net",
+                "Type": "text",
+            },
+            "Message": {"conversation": "/cadastro SYNTHETIC_SECRET_VAL"},
+        },
+    }
+    body = json.dumps(payload).encode("utf-8")
+    sig = generate_test_signature(body, secret)
+
+    with TestClient(app) as client:
+        resp = client.post(
+            "/webhook",
+            content=body,
+            headers={
+                "Content-Type": "application/json",
+                "x-hmac-signature": sig,
+            },
+        )
+        assert resp.status_code == 200
+
+
+def test_mode4_missing_info_fails_closed(monkeypatch, test_db_session):
+    secret = "test_wuzapi_secret"
+    settings = get_settings()
+    monkeypatch.setattr(settings, "wuzapi_webhook_secret", secret)
+
+    payload = {
+        "instanceName": "g10b1_mode4_noinfo",
+        "userID": "synth-wuzapi-user-id-noinfo",
+        "type": "Message",
+        "event": {
+            "Message": {"conversation": "No info dict"},
+        },
+    }
+    body = json.dumps(payload).encode("utf-8")
+    sig = generate_test_signature(body, secret)
+
+    with TestClient(app) as client:
+        resp = client.post(
+            "/webhook",
+            content=body,
+            headers={
+                "Content-Type": "application/json",
+                "x-hmac-signature": sig,
+            },
+        )
+        assert resp.status_code == 400
+        assert "Missing required source fields" in resp.json()["detail"]
+
+
+def test_mode4_missing_id_fails_400(monkeypatch, test_db_session):
+    secret = "test_wuzapi_secret"
+    settings = get_settings()
+    monkeypatch.setattr(settings, "wuzapi_webhook_secret", secret)
+
+    payload = {
+        "instanceName": "g10b1_mode4_noid",
+        "userID": "synth-wuzapi-user-id-noid",
+        "type": "Message",
+        "event": {
+            "Info": {
+                "Sender": "5511999991111@s.whatsapp.net",
+            },
+            "Message": {"conversation": "No ID"},
+        },
+    }
+    body = json.dumps(payload).encode("utf-8")
+    sig = generate_test_signature(body, secret)
+
+    with TestClient(app) as client:
+        resp = client.post(
+            "/webhook",
+            content=body,
+            headers={
+                "Content-Type": "application/json",
+                "x-hmac-signature": sig,
+            },
+        )
+        assert resp.status_code == 400
+        assert "Missing required source fields" in resp.json()["detail"]
+
+
+def test_mode4_empty_id_fails_400(monkeypatch, test_db_session):
+    secret = "test_wuzapi_secret"
+    settings = get_settings()
+    monkeypatch.setattr(settings, "wuzapi_webhook_secret", secret)
+
+    payload = {
+        "instanceName": "g10b1_mode4_emptyid",
+        "userID": "synth-wuzapi-user-id-emptyid",
+        "type": "Message",
+        "event": {
+            "Info": {
+                "ID": "   ",
+                "Sender": "5511999991111@s.whatsapp.net",
+            },
+            "Message": {"conversation": "Empty ID"},
+        },
+    }
+    body = json.dumps(payload).encode("utf-8")
+    sig = generate_test_signature(body, secret)
+
+    with TestClient(app) as client:
+        resp = client.post(
+            "/webhook",
+            content=body,
+            headers={
+                "Content-Type": "application/json",
+                "x-hmac-signature": sig,
+            },
+        )
+        assert resp.status_code == 400
+        assert "Missing required source fields" in resp.json()["detail"]
+
+
+def test_mode4_privacy_lid_sender_alt_resolution(monkeypatch, test_db_session):
+    secret = "test_wuzapi_secret"
+    settings = get_settings()
+    monkeypatch.setattr(settings, "wuzapi_webhook_secret", secret)
+
+    payload = {
+        "instanceName": "g10b1_mode4_lid",
+        "userID": "synth-wuzapi-user-id-lid",
+        "type": "Message",
+        "event": {
+            "Info": {
+                "ID": "SYNTH-MODE4-LID-MSG",
+                "Sender": "226160143274032:88@lid",
+                "SenderAlt": "554791734195:88@s.whatsapp.net",
+                "Type": "text",
+            },
+            "Message": {"conversation": "LID resolution test"},
+        },
+    }
+    body = json.dumps(payload).encode("utf-8")
+    sig = generate_test_signature(body, secret)
+
+    with TestClient(app) as client:
+        resp = client.post(
+            "/webhook",
+            content=body,
+            headers={
+                "Content-Type": "application/json",
+                "x-hmac-signature": sig,
+            },
+        )
+        assert resp.status_code == 200
+
+
+def test_mode4_lifecycle_non_message_ignored(monkeypatch, test_db_session):
+    secret = "test_wuzapi_secret"
+    settings = get_settings()
+    monkeypatch.setattr(settings, "wuzapi_webhook_secret", secret)
+
+    payload = {
+        "instanceName": "g10b1_mode4_lifecycle",
+        "userID": "synth-wuzapi-user-id-lifecycle",
+        "type": "ChatPresence",
+        "event": {
+            "Info": {"ID": "LIFECYCLE-001"},
+            "Type": "ChatPresence",
+        },
+    }
+    body = json.dumps(payload).encode("utf-8")
+    sig = generate_test_signature(body, secret)
+
+    with TestClient(app) as client:
+        resp = client.post(
+            "/webhook",
+            content=body,
+            headers={
+                "Content-Type": "application/json",
+                "x-hmac-signature": sig,
+            },
+        )
+        assert resp.status_code == 200
+        assert resp.json().get("detail") == "ignored_chatpresence"
+
+
+def test_mode4_duplicate_idempotency_same_identity(monkeypatch, test_db_session):
+    secret = "test_wuzapi_secret"
+    settings = get_settings()
+    monkeypatch.setattr(settings, "wuzapi_webhook_secret", secret)
+
+    payload = {
+        "instanceName": "g10b1_mode4_dup",
+        "userID": "synth-wuzapi-user-id-dup",
+        "type": "Message",
+        "event": {
+            "Info": {
+                "ID": "SYNTH-MODE4-DUP-001",
+                "Sender": "5511999997777@s.whatsapp.net",
+                "Type": "text",
+            },
+            "Message": {"conversation": "Duplicate Mode 4 test"},
+        },
+    }
+    body = json.dumps(payload).encode("utf-8")
+    sig = generate_test_signature(body, secret)
+
+    with TestClient(app) as client:
+        resp1 = client.post(
+            "/webhook",
+            content=body,
+            headers={
+                "Content-Type": "application/json",
+                "x-hmac-signature": sig,
+            },
+        )
+        assert resp1.status_code == 200
+        assert resp1.json().get("detail") == "instance_not_found"
+
+        resp2 = client.post(
+            "/webhook",
+            content=body,
+            headers={
+                "Content-Type": "application/json",
+                "x-hmac-signature": sig,
+            },
+        )
+        assert resp2.status_code == 200
+        assert resp2.json().get("detail") == "idempotent duplicate"
+
+
+def test_envelope_conflict_jsonData_vs_top_level_fails_400(monkeypatch, test_db_session):
+    secret = "test_wuzapi_secret"
+    settings = get_settings()
+    monkeypatch.setattr(settings, "wuzapi_webhook_secret", secret)
+
+    inner_json = {
+        "event": {
+            "Info": {"ID": "MSG-ID-ALPHA", "Sender": "5511999990001@s.whatsapp.net"},
+            "Message": {"conversation": "Alpha"},
+        },
+        "type": "Message",
+    }
+    payload = {
+        "instanceName": "g10b1_conflict",
+        "userID": "synth-wuzapi-user-id-conflict",
+        "jsonData": json.dumps(inner_json),
+        "event": {
+            "Info": {"ID": "MSG-ID-BETA", "Sender": "5511999990002@s.whatsapp.net"},
+            "Message": {"conversation": "Beta"},
+        },
+        "type": "Message",
+    }
+    body = json.dumps(payload).encode("utf-8")
+    sig = generate_test_signature(body, secret)
+
+    with TestClient(app) as client:
+        resp = client.post(
+            "/webhook",
+            content=body,
+            headers={
+                "Content-Type": "application/json",
+                "x-hmac-signature": sig,
+            },
+        )
+        assert resp.status_code == 400
+        assert "Conflicting event envelopes" in resp.json()["detail"]
+
+
+def test_envelope_matching_jsonData_vs_top_level_succeeds(monkeypatch, test_db_session):
+    secret = "test_wuzapi_secret"
+    settings = get_settings()
+    monkeypatch.setattr(settings, "wuzapi_webhook_secret", secret)
+
+    inner_json = {
+        "event": {
+            "Info": {"ID": "MSG-ID-SAME", "Sender": "5511999990001@s.whatsapp.net"},
+            "Message": {"conversation": "Same"},
+        },
+        "type": "Message",
+    }
+    payload = {
+        "instanceName": "g10b1_matching",
+        "userID": "synth-wuzapi-user-id-match",
+        "jsonData": json.dumps(inner_json),
+        "event": {
+            "Info": {"ID": "MSG-ID-SAME", "Sender": "5511999990001@s.whatsapp.net"},
+            "Message": {"conversation": "Same"},
+        },
+        "type": "Message",
+    }
+    body = json.dumps(payload).encode("utf-8")
+    sig = generate_test_signature(body, secret)
+
+    with TestClient(app) as client:
+        resp = client.post(
+            "/webhook",
+            content=body,
+            headers={
+                "Content-Type": "application/json",
+                "x-hmac-signature": sig,
+            },
+        )
+        assert resp.status_code == 200
+        assert resp.json().get("detail") == "instance_not_found"
+
+
+# ------------------------------------------------------------------
+# WhatsApp Multi-Device Phone Normalization Unit & Registration Tests
+# ------------------------------------------------------------------
+
+
+def test_normalize_phone_number_multi_device_matrix():
+    # A. Plain numeric phone
+    assert normalize_phone_number("554791734195") == "554791734195"
+    # B. Standard WhatsApp JID
+    assert normalize_phone_number("554791734195@s.whatsapp.net") == "554791734195"
+    # C. Single-digit device suffix
+    assert normalize_phone_number("554791734195:1@s.whatsapp.net") == "554791734195"
+    # D. Multi-digit device suffix
+    assert normalize_phone_number("554791734195:88@s.whatsapp.net") == "554791734195"
+    # E. Colon without @
+    assert normalize_phone_number("554791734195:88") == "554791734195"
+    # F. Local Brazil number without DDI
+    assert normalize_phone_number("4791734195:12@s.whatsapp.net") == "554791734195"
+    # G. Special characters with device suffix
+    assert normalize_phone_number("+55 (47) 9173-4195:88@s.whatsapp.net") == "554791734195"
+
+
+def test_mode4_registration_with_multi_device_sender_alt(monkeypatch, test_db_session):
+    from unittest.mock import AsyncMock, patch
+    from db.models import Organization, Bot, Instance, User, RegistrationAttempt
+    from security.hash import hash_secret
+
+    secret = "test_wuzapi_secret"
+    registration_secret = "correct_secret_val_123"
+    pepper = "reg_pepper_test"
+    settings = get_settings()
+    monkeypatch.setattr(settings, "wuzapi_webhook_secret", secret)
+    monkeypatch.setattr(settings, "registration_secret_pepper", pepper)
+
+    # Seed an Organization, Bot, and Instance in the isolated test DB
+    from orchestrator.main import get_db
+    db_gen = app.dependency_overrides[get_db]()
+    db = next(db_gen)
+
+    org_id = "org-test-multi-device"
+    bot_id = "bot-test-multi-device"
+    inst_id = "inst-test-multi-device"
+    secret_hash = hash_secret(org_id + ":" + registration_secret, pepper)
+
+    org = Organization(id=org_id, name="Test Org", slug="test-org-md", registration_secret_hash=secret_hash)
+    bot = Bot(id=bot_id, organization_id=org_id, name="Test Bot", service_key="svc-key-md-1")
+    inst = Instance(
+        id=inst_id,
+        organization_id=org_id,
+        bot_id=bot_id,
+        external_instance_id="wuzapi-user-md-1",
+        phone_number="554791696228",
+    )
+    db.add(org)
+    db.add(bot)
+    db.add(inst)
+    db.commit()
+
+    payload = {
+        "instanceName": "g10b1_mode4_md_reg",
+        "userID": "wuzapi-user-md-1",
+        "type": "Message",
+        "event": {
+            "Info": {
+                "ID": "SYNTH-MD-MSG-001",
+                "Sender": "226160143274032:88@lid",
+                "SenderAlt": "554791734195:88@s.whatsapp.net",
+                "Type": "text",
+            },
+            "Message": {"conversation": f"/cadastro {registration_secret}"},
+        },
+    }
+    body = json.dumps(payload).encode("utf-8")
+    sig = generate_test_signature(body, secret)
+
+    mock_send = AsyncMock()
+    with patch("orchestrator.main.WuzapiClient.send_text_message", mock_send):
+        with TestClient(app) as client:
+            resp = client.post(
+                "/webhook",
+                content=body,
+                headers={
+                    "Content-Type": "application/json",
+                    "x-hmac-signature": sig,
+                },
+            )
+            assert resp.status_code == 200
+            assert resp.json().get("detail") == "REGISTRATION_SUCCEEDED"
+
+    # 1. Verify User phone number is canonical (12 digits, NO device suffix :88)
+    user = db.query(User).filter_by(organization_id=org_id).first()
+    assert user is not None
+    assert user.phone_number == "554791734195"
+    assert "88" not in user.phone_number[-2:] or len(user.phone_number) == 12
+
+    # 2. Verify RegistrationAttempt phone number is canonical
+    attempt = db.query(RegistrationAttempt).filter_by(organization_id=org_id).first()
+    assert attempt is not None
+    assert attempt.phone_number == "554791734195"
+    assert attempt.success is True
+
+    # 3. Verify outbound call used canonical phone
+    mock_send.assert_awaited_once()
+    called_phone = mock_send.call_args[0][0]
+    assert called_phone == "554791734195"

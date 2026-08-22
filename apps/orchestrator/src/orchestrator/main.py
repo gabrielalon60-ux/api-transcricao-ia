@@ -44,6 +44,8 @@ def extract_file_info(
         json_data_obj = p_json_data
 
     p_event = json_data_obj.get("event")
+    if not isinstance(p_event, dict):
+        p_event = payload.get("event")
     event_obj: dict = p_event if isinstance(p_event, dict) else {}
     p_info = event_obj.get("Info")
     info_obj: dict = p_info if isinstance(p_info, dict) else {}
@@ -198,8 +200,10 @@ def verify_webhook_signature(
 
 
 def normalize_phone_number(phone: str) -> str:
-    # Remove JID suffixes
-    phone_clean = phone.split("@")[0]
+    # Remove JID suffixes (@s.whatsapp.net, @lid, etc.)
+    phone_clean = phone.split("@", 1)[0]
+    # Remove WhatsApp multi-device suffix (:1, :88, etc.)
+    phone_clean = phone_clean.split(":", 1)[0]
     # Remove non-digits
     digits = re.sub(r"\D", "", phone_clean)
     digits = digits.lstrip("0")
@@ -232,9 +236,11 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
     # Parse payload
     content_type = request.headers.get("content-type", "")
     payload: dict[str, Any] = {}
+
+    body_str = body_bytes.decode("utf-8") if body_bytes else ""
+    stripped_body = body_str.strip()
+
     try:
-        body_str = body_bytes.decode("utf-8") if body_bytes else ""
-        stripped_body = body_str.strip()
         if stripped_body.startswith(("{", "[")):
             parsed_json = json.loads(body_str)
             if not isinstance(parsed_json, dict):
@@ -278,11 +284,30 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
         else:
             raise HTTPException(status_code=400, detail="Invalid jsonData type")
 
-    # Filter out non-Message lifecycle events (ChatPresence, HistorySync, Receipt, etc.)
+    # Resolve authoritative native WUZAPI event envelope (jsonData vs top-level payload.event)
+    native_event_envelope: dict | None = None
+
+    top_level_event = payload.get("event")
     if json_data_envelope is not None:
-        event_type = json_data_envelope.get("type") or (
-            json_data_envelope.get("event", {}).get("Type")
-            if isinstance(json_data_envelope.get("event"), dict)
+        # Conflict safety: if both jsonData and top_level_event are present and both provide event objects
+        if isinstance(top_level_event, dict) and isinstance(json_data_envelope.get("event"), dict):
+            inner_id = json_data_envelope["event"].get("Info", {}).get("ID") or json_data_envelope["event"].get("Info", {}).get("Id")
+            outer_id = top_level_event.get("Info", {}).get("ID") or top_level_event.get("Info", {}).get("Id")
+            if inner_id and outer_id and str(inner_id).strip() != str(outer_id).strip():
+                logger.warning("Conflicting event envelopes detected (jsonData.event vs payload.event).")
+                raise HTTPException(status_code=400, detail="Conflicting event envelopes")
+        native_event_envelope = json_data_envelope
+    elif isinstance(top_level_event, dict):
+        native_event_envelope = {
+            "event": top_level_event,
+            "type": payload.get("type") or top_level_event.get("Type"),
+        }
+
+    # Filter out non-Message lifecycle events (ChatPresence, HistorySync, Receipt, etc.)
+    if native_event_envelope is not None:
+        event_type = native_event_envelope.get("type") or (
+            native_event_envelope.get("event", {}).get("Type")
+            if isinstance(native_event_envelope.get("event"), dict)
             else None
         )
         if event_type and event_type != "Message":
@@ -313,9 +338,9 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
             else ("pdf" if msg_type == "document" else "text")
         )
         text_content = payload.get("text")
-    elif json_data_envelope is not None:
-        # Native WUZAPI v1.0.8 envelope with jsonData
-        p_event = json_data_envelope.get("event")
+    elif native_event_envelope is not None:
+        # Native WUZAPI v1.0.8 envelope (from jsonData or top-level event)
+        p_event = native_event_envelope.get("event")
         event_obj: dict = p_event if isinstance(p_event, dict) else {}
         p_info = event_obj.get("Info")
         info_obj: dict = p_info if isinstance(p_info, dict) else {}
@@ -330,8 +355,8 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
             payload.get("userID")
             or payload.get("instanceId")
             or payload.get("instance")
-            or json_data_envelope.get("instanceId")
-            or json_data_envelope.get("userID")
+            or native_event_envelope.get("instanceId")
+            or native_event_envelope.get("userID")
         )
         if isinstance(raw_inst, dict):
             raw_inst = raw_inst.get("external_id")
@@ -350,8 +375,8 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
                 if isinstance(msg_obj.get("key"), dict)
                 else None
             )
-            or json_data_envelope.get("id")
-            or json_data_envelope.get("external_message_id")
+            or native_event_envelope.get("id")
+            or native_event_envelope.get("external_message_id")
             or payload.get("external_message_id")
         )
         external_message_id = (
@@ -382,7 +407,7 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
             raw_sender = (
                 info_obj.get("Chat")
                 or p_key.get("remoteJid")
-                or json_data_envelope.get("sender")
+                or native_event_envelope.get("sender")
                 or payload.get("sender")
             )
         sender_phone_raw = (
@@ -409,7 +434,7 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
             text_content = (
                 msg_obj.get("conversation")
                 or ext_text
-                or json_data_envelope.get("text")
+                or native_event_envelope.get("text")
                 or payload.get("text")
             )
     else:
