@@ -45,6 +45,14 @@ def _valid_media_ref(**overrides):
     return media_ref
 
 
+def _native_success(data_url: str, mimetype: str) -> dict:
+    return {
+        "code": 200,
+        "data": {"Mimetype": mimetype, "Data": data_url},
+        "success": True,
+    }
+
+
 @pytest.mark.asyncio
 async def test_download_image_native_endpoint_and_payload(wuzapi_client):
     sample_bytes = b"fake_jpeg_binary_content"
@@ -55,7 +63,7 @@ async def test_download_image_native_endpoint_and_payload(wuzapi_client):
 
     mock_response = httpx.Response(
         status_code=200,
-        json={"Mimetype": "image/jpeg", "Data": data_url},
+        json=_native_success(data_url, "image/jpeg"),
         request=httpx.Request("POST", "http://wuzapi:8080/chat/downloadimage"),
     )
 
@@ -87,7 +95,7 @@ async def test_download_document_native_endpoint_and_payload(wuzapi_client):
 
     mock_response = httpx.Response(
         status_code=200,
-        json={"Mimetype": "application/pdf", "Data": data_url},
+        json=_native_success(data_url, "application/pdf"),
         request=httpx.Request("POST", "http://wuzapi:8080/chat/downloaddocument"),
     )
 
@@ -104,21 +112,38 @@ async def test_download_document_native_endpoint_and_payload(wuzapi_client):
 
 
 @pytest.mark.asyncio
-async def test_download_audio_video_sticker_endpoints(wuzapi_client):
+@pytest.mark.parametrize(
+    ("mime_type", "route"),
+    [
+        ("audio/ogg", "downloadaudio"),
+        ("video/mp4", "downloadvideo"),
+        ("sticker", "downloadsticker"),
+    ],
+)
+async def test_download_audio_video_sticker_native_envelope(
+    wuzapi_client, mime_type, route
+):
     sample_bytes = b"media_bytes"
-    data_url = f"data:audio/ogg;base64,{base64.b64encode(sample_bytes).decode('utf-8')}"
-
+    response_mimetype = "image/webp" if mime_type == "sticker" else mime_type
+    data_url = (
+        f"data:{response_mimetype};base64,"
+        f"{base64.b64encode(sample_bytes).decode('utf-8')}"
+    )
     mock_response = httpx.Response(
         status_code=200,
-        json={"Mimetype": "audio/ogg", "Data": data_url},
-        request=httpx.Request("POST", "http://wuzapi:8080/chat/downloadaudio"),
+        json=_native_success(data_url, response_mimetype),
+        request=httpx.Request("POST", f"http://wuzapi:8080/chat/{route}"),
     )
 
-    with patch("httpx.AsyncClient.post", new_callable=AsyncMock, return_value=mock_response) as mock_post:
-        media_ref = _valid_media_ref(media_key="key", mime_type="audio/ogg")
-        res = await wuzapi_client.download_media(media_ref, mime_type="audio/ogg")
+    with patch(
+        "httpx.AsyncClient.post", new_callable=AsyncMock, return_value=mock_response
+    ) as mock_post:
+        media_ref = _valid_media_ref(
+            media_key="key", mime_type=response_mimetype
+        )
+        res = await wuzapi_client.download_media(media_ref, mime_type=mime_type)
         assert res == sample_bytes
-        assert mock_post.call_args[0][0] == "http://wuzapi:8080/chat/downloadaudio"
+        assert mock_post.call_args[0][0] == f"http://wuzapi:8080/chat/{route}"
 
 
 @pytest.mark.asyncio
@@ -207,7 +232,9 @@ async def test_download_timeout_classified_retryable(wuzapi_client):
 async def test_download_malformed_base64_fails_closed(wuzapi_client):
     mock_response = httpx.Response(
         status_code=200,
-        json={"Mimetype": "image/jpeg", "Data": "data:image/jpeg;base64,@@@@NOT_BASE64@@@@"},
+        json=_native_success(
+            "data:image/jpeg;base64,@@@@NOT_BASE64@@@@", "image/jpeg"
+        ),
         request=httpx.Request("POST", "http://wuzapi:8080/chat/downloadimage"),
     )
     with patch("httpx.AsyncClient.post", new_callable=AsyncMock, return_value=mock_response):
@@ -224,7 +251,7 @@ async def test_download_size_limit_exceeded(wuzapi_client):
     data_url = f"data:image/jpeg;base64,{base64.b64encode(huge_bytes).decode('utf-8')}"
     mock_response = httpx.Response(
         status_code=200,
-        json={"Mimetype": "image/jpeg", "Data": data_url},
+        json=_native_success(data_url, "image/jpeg"),
         request=httpx.Request("POST", "http://wuzapi:8080/chat/downloadimage"),
     )
     with patch("httpx.AsyncClient.post", new_callable=AsyncMock, return_value=mock_response):
@@ -233,3 +260,107 @@ async def test_download_size_limit_exceeded(wuzapi_client):
             await wuzapi_client.download_media(media_ref, mime_type="image/jpeg")
         assert exc_info.value.retryable is False
         assert exc_info.value.reason == "FILE_SIZE_LIMIT_EXCEEDED"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("body", "reason"),
+    [
+        ({"code": 200, "success": True}, "MISSING_MEDIA_DATA_OBJECT"),
+        (
+            {"code": 201, "data": {}, "success": True},
+            "INVALID_SUCCESS_ENVELOPE",
+        ),
+        (
+            {"code": 200, "data": {}},
+            "INVALID_SUCCESS_ENVELOPE",
+        ),
+        (
+            {"code": 200, "data": {}, "success": False},
+            "PROVIDER_FAILURE_ENVELOPE",
+        ),
+        (
+            {
+                "code": 200,
+                "data": {"Data": "data:image/jpeg;base64,aW1hZ2U="},
+                "success": True,
+            },
+            "MISSING_MEDIA_MIMETYPE",
+        ),
+        (
+            {"code": 200, "data": {"Mimetype": "image/jpeg"}, "success": True},
+            "MISSING_MEDIA_DATA_URL",
+        ),
+        (
+            {
+                "code": 200,
+                "data": {"Mimetype": "image/jpeg", "Data": "not-a-data-url"},
+                "success": True,
+            },
+            "INVALID_DATA_URL",
+        ),
+        (
+            {
+                "code": 200,
+                "data": {"Mimetype": "image/jpeg", "Data": "data:image/jpeg;base64,"},
+                "success": True,
+            },
+            "EMPTY_MEDIA_BYTES",
+        ),
+    ],
+)
+async def test_download_invalid_native_success_envelopes_fail_closed(
+    wuzapi_client, body, reason
+):
+    mock_response = httpx.Response(
+        status_code=200,
+        json=body,
+        request=httpx.Request("POST", "http://wuzapi:8080/chat/downloadimage"),
+    )
+    with patch(
+        "httpx.AsyncClient.post", new_callable=AsyncMock, return_value=mock_response
+    ):
+        with pytest.raises(WuzapiError) as exc_info:
+            await wuzapi_client.download_media(
+                _valid_media_ref(), mime_type="image/jpeg"
+            )
+        assert exc_info.value.retryable is False
+        assert exc_info.value.reason == reason
+
+
+@pytest.mark.asyncio
+async def test_download_native_success_requires_matching_mimetype(wuzapi_client):
+    data_url = f"data:image/png;base64,{base64.b64encode(b'image').decode('utf-8')}"
+    mock_response = httpx.Response(
+        status_code=200,
+        json=_native_success(data_url, "image/jpeg"),
+        request=httpx.Request("POST", "http://wuzapi:8080/chat/downloadimage"),
+    )
+    with patch(
+        "httpx.AsyncClient.post", new_callable=AsyncMock, return_value=mock_response
+    ):
+        with pytest.raises(WuzapiError) as exc_info:
+            await wuzapi_client.download_media(
+                _valid_media_ref(), mime_type="image/jpeg"
+            )
+        assert exc_info.value.retryable is False
+        assert exc_info.value.reason == "MEDIA_MIMETYPE_MISMATCH"
+
+
+@pytest.mark.asyncio
+async def test_download_unwrapped_success_fixture_is_rejected(wuzapi_client):
+    data_url = f"data:image/jpeg;base64,{base64.b64encode(b'image').decode('utf-8')}"
+    mock_response = httpx.Response(
+        status_code=200,
+        json={"Mimetype": "image/jpeg", "Data": data_url},
+        request=httpx.Request("POST", "http://wuzapi:8080/chat/downloadimage"),
+    )
+    with patch(
+        "httpx.AsyncClient.post", new_callable=AsyncMock, return_value=mock_response
+    ):
+        with pytest.raises(WuzapiError) as exc_info:
+            await wuzapi_client.download_media(
+                _valid_media_ref(), mime_type="image/jpeg"
+            )
+        assert exc_info.value.retryable is False
+        assert exc_info.value.reason == "INVALID_SUCCESS_ENVELOPE"

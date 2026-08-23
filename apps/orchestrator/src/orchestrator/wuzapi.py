@@ -102,6 +102,96 @@ def _is_integrity_failure_response(response: httpx.Response) -> bool:
     )
 
 
+def _unwrap_native_media_success(res_data: Any, http_status: int) -> tuple[str, str]:
+    """Validate and unwrap the pinned WUZAPI v1.0.8 media success envelope."""
+    if not isinstance(res_data, dict):
+        raise WuzapiError(
+            "Invalid response structure from WUZAPI media endpoint.",
+            retryable=False,
+            http_status=http_status,
+            reason="INVALID_RESPONSE_STRUCTURE",
+        )
+
+    if res_data.get("success") is False:
+        raise WuzapiError(
+            "WUZAPI returned a provider failure envelope.",
+            retryable=False,
+            http_status=http_status,
+            reason="PROVIDER_FAILURE_ENVELOPE",
+        )
+
+    if res_data.get("code") != http_status or res_data.get("success") is not True:
+        raise WuzapiError(
+            "Invalid WUZAPI media success envelope.",
+            retryable=False,
+            http_status=http_status,
+            reason="INVALID_SUCCESS_ENVELOPE",
+        )
+
+    inner = res_data.get("data")
+    if not isinstance(inner, dict):
+        raise WuzapiError(
+            "WUZAPI media success envelope is missing its data object.",
+            retryable=False,
+            http_status=http_status,
+            reason="MISSING_MEDIA_DATA_OBJECT",
+        )
+
+    mimetype = inner.get("Mimetype")
+    if not isinstance(mimetype, str) or not mimetype.strip():
+        raise WuzapiError(
+            "WUZAPI media response is missing its Mimetype.",
+            retryable=False,
+            http_status=http_status,
+            reason="MISSING_MEDIA_MIMETYPE",
+        )
+
+    data_url = inner.get("Data")
+    if not isinstance(data_url, str) or not data_url:
+        raise WuzapiError(
+            "WUZAPI media response is missing its Data URL.",
+            retryable=False,
+            http_status=http_status,
+            reason="MISSING_MEDIA_DATA_URL",
+        )
+
+    return mimetype.strip(), data_url
+
+
+def _extract_data_url_payload(data_url: str, expected_mimetype: str) -> str:
+    """Return base64 content from the narrow Data URL emitted by dataurl.New."""
+    header, separator, base64_payload = data_url.partition(",")
+    if (
+        not separator
+        or not header.startswith("data:")
+        or not header.lower().endswith(";base64")
+    ):
+        raise WuzapiError(
+            "Invalid Data URL in WUZAPI media response.",
+            retryable=False,
+            reason="INVALID_DATA_URL",
+        )
+
+    data_url_mimetype = header[len("data:") : -len(";base64")].strip()
+    base_media_type = data_url_mimetype.split(";", 1)[0].strip().lower()
+    supported_prefixes = ("image/", "application/", "text/", "audio/", "video/")
+    if not data_url_mimetype or not base_media_type.startswith(supported_prefixes):
+        raise WuzapiError(
+            "Unsupported or missing MIME type in WUZAPI media Data URL.",
+            retryable=False,
+            reason="INVALID_DATA_URL_MIMETYPE",
+        )
+
+    if data_url_mimetype.casefold() != expected_mimetype.casefold():
+        raise WuzapiError(
+            "WUZAPI media Mimetype does not match its Data URL.",
+            retryable=False,
+            reason="MEDIA_MIMETYPE_MISMATCH",
+        )
+
+    return base64_payload
+
+
 class WuzapiClient:
     """Encapsulates outbound API requests to the WUZAPI server using pinned v1.0.8 contracts."""
 
@@ -321,22 +411,10 @@ class WuzapiClient:
                 reason="MALFORMED_JSON_RESPONSE",
             ) from exc
 
-        if not isinstance(res_data, dict):
-            raise WuzapiError(
-                "Invalid response structure from WUZAPI media endpoint.",
-                retryable=False,
-                reason="INVALID_RESPONSE_STRUCTURE",
-            )
-
-        data_url = res_data.get("Data") or res_data.get("data") or ""
-        if not isinstance(data_url, str) or not data_url.startswith("data:") or ";base64," not in data_url:
-            raise WuzapiError(
-                "Invalid or missing Data URL in WUZAPI media response.",
-                retryable=False,
-                reason="INVALID_DATA_URL",
-            )
-
-        _header, base64_payload = data_url.split(";base64,", 1)
+        response_mimetype, data_url = _unwrap_native_media_success(
+            res_data, response.status_code
+        )
+        base64_payload = _extract_data_url_payload(data_url, response_mimetype)
         try:
             media_bytes = base64.b64decode(base64_payload, validate=True)
         except Exception as exc:

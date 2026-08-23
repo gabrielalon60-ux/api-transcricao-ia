@@ -70,8 +70,12 @@ async def test_wuzapi_download_media_contract():
     mock_resp = MagicMock()
     mock_resp.status_code = 200
     mock_resp.json.return_value = {
-        "Mimetype": "image/jpeg",
-        "Data": f"data:image/jpeg;base64,{base64.b64encode(b'MOCK_BINARY_IMAGE_BYTES').decode('utf-8')}",
+        "code": 200,
+        "data": {
+            "Mimetype": "image/jpeg",
+            "Data": f"data:image/jpeg;base64,{base64.b64encode(b'MOCK_BINARY_IMAGE_BYTES').decode('utf-8')}",
+        },
+        "success": True,
     }
 
     mock_http_instance = AsyncMock()
