@@ -147,6 +147,7 @@ def apply_extraction_failure(
     dispatched_claim_token: Optional[str],
     error_code: str,
     retryable: bool,
+    error_message_sanitized: Optional[str] = None,
     local_buffer_path: Optional[str] = None,
 ) -> Optional[ProcessingItem]:
     """Atomically applies extraction failure guarded by extraction_claim_token."""
@@ -171,6 +172,8 @@ def apply_extraction_failure(
 
     if not retryable or item.attempt_count >= MAX_EXTRACTION_ATTEMPTS:
         item.status = "EXTRACTION_FAILED"
+        item.error_code = error_code
+        item.error_message_sanitized = error_message_sanitized or error_code
     else:
         item.status = "RECEIVED"
 
@@ -238,9 +241,25 @@ class ExtractionDispatcher:
                 updated_item = apply_extraction_success(db, item_id, dispatched_token, res_payload, local_buffer_path=local_buffer_path)
                 return updated_item or item
             except TranscriptionClientError as exc:
-                updated_item = apply_extraction_failure(db, item_id, dispatched_token, exc.error_code or "EXTRACTION_ERROR", exc.retryable, local_buffer_path=local_buffer_path)
+                updated_item = apply_extraction_failure(
+                    db,
+                    item_id,
+                    dispatched_token,
+                    exc.error_code or "EXTRACTION_ERROR",
+                    exc.retryable,
+                    error_message_sanitized=exc.error_code or "EXTRACTION_ERROR",
+                    local_buffer_path=local_buffer_path,
+                )
                 return updated_item or item
             except Exception as exc:
                 logger.error(f"Unexpected extraction dispatcher error: {exc}")
-                updated_item = apply_extraction_failure(db, item_id, dispatched_token, "UNEXPECTED_ERROR", retryable=True, local_buffer_path=local_buffer_path)
+                updated_item = apply_extraction_failure(
+                    db,
+                    item_id,
+                    dispatched_token,
+                    "UNEXPECTED_ERROR",
+                    retryable=True,
+                    error_message_sanitized="UNEXPECTED_ERROR",
+                    local_buffer_path=local_buffer_path,
+                )
                 return updated_item or item

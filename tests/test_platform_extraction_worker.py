@@ -4,7 +4,7 @@ import asyncio
 import logging
 import uuid
 from datetime import datetime, timezone, timedelta
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from sqlalchemy import create_engine
@@ -280,6 +280,9 @@ async def test_sqlite_extraction_worker_handles_transcription_failure(mock_sqlit
         refreshed = db.get(ProcessingItem, item_id)
         assert refreshed is not None
         assert refreshed.status == "EXTRACTION_FAILED"
+        assert refreshed.error_code == "INVALID_DOCUMENT"
+        assert refreshed.error_message_sanitized == "INVALID_DOCUMENT"
+        assert refreshed.outcome_reason is None
 
 
 @pytest.mark.asyncio
@@ -320,6 +323,9 @@ async def test_sqlite_extraction_worker_transient_media_download_failure_retries
         # Must be reset to RECEIVED for retry (since retryable=True and attempt_count < 3)
         assert refreshed.status == "RECEIVED"
         assert refreshed.claimed_by is None
+        assert refreshed.attempt_count == 1
+        assert refreshed.error_code is None
+        assert refreshed.error_message_sanitized is None
 
 
 @pytest.mark.asyncio
@@ -363,25 +369,35 @@ async def test_sqlite_extraction_worker_deterministic_404_media_failure_terminal
         assert refreshed.status == "EXTRACTION_FAILED"
         assert refreshed.attempt_count == 1
         assert refreshed.claimed_by is None
+        assert refreshed.error_code == "EXTRACTION_ERROR"
+        assert refreshed.error_message_sanitized == "NOT_FOUND_404"
+        assert refreshed.outcome_reason is None
 
 
 @pytest.mark.asyncio
-async def test_sqlite_extraction_worker_missing_crypto_field_terminalizes_immediately(mock_sqlite_db, sqlite_context):
-    """7c. Missing required MediaKey terminalizes immediately to EXTRACTION_FAILED (no retry storm)."""
+async def test_sqlite_extraction_worker_missing_plaintext_hash_terminalizes_immediately(mock_sqlite_db, sqlite_context):
+    """7c. Missing required FileSHA256 terminalizes on attempt one without Transcription."""
     with mock_sqlite_db() as db:
         _, item = _create_event_and_item(
             db,
             sqlite_context,
             status="RECEIVED",
             sequence=1,
-            media_ref={"direct_path": "/media/test.jpg"},  # Missing media_key
+            media_ref={
+                "url": "https://mmg.whatsapp.net/d/f/test.enc",
+                "direct_path": "/media/test.jpg",
+                "media_key": "valid_key",
+                "mime_type": "image/jpeg",
+                "expected_size": 1024,
+                # expected_sha256 intentionally absent
+            },
         )
         item_id = item.id
 
-    mock_wuzapi = MagicMock(spec=WuzapiClient)
-    mock_wuzapi.download_media = AsyncMock(
-        side_effect=WuzapiError("Missing required cryptographic field 'media_key'", retryable=False, reason="MISSING_CRYPTO_FIELD")
-    )
+    real_wuzapi = object.__new__(WuzapiClient)
+    real_wuzapi.base_url = "http://wuzapi.invalid"
+    real_wuzapi.token = "test-token"
+    real_wuzapi._headers = {"token": "test-token", "Content-Type": "application/json"}
 
     mock_transcription = MagicMock(spec=TranscriptionClient)
     dispatcher = ExtractionDispatcher(transcription_client=mock_transcription)
@@ -390,10 +406,12 @@ async def test_sqlite_extraction_worker_missing_crypto_field_terminalizes_immedi
         worker_id="test-missing-key",
         session_factory=mock_sqlite_db,
         dispatcher=dispatcher,
-        wuzapi_client=mock_wuzapi,
+        wuzapi_client=real_wuzapi,
     )
 
-    claimed = await worker.run_iteration()
+    with patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post:
+        claimed = await worker.run_iteration()
+        mock_post.assert_not_called()
     assert claimed is True
     mock_transcription.extract.assert_not_called()
 
@@ -402,6 +420,10 @@ async def test_sqlite_extraction_worker_missing_crypto_field_terminalizes_immedi
         assert refreshed is not None
         assert refreshed.status == "EXTRACTION_FAILED"
         assert refreshed.attempt_count == 1
+        assert refreshed.error_code == "EXTRACTION_ERROR"
+        assert refreshed.error_message_sanitized == "MISSING_CRYPTO_FIELD"
+        assert refreshed.outcome_reason is None
+        assert "FileSHA256" not in refreshed.error_message_sanitized
 
 
 @pytest.mark.asyncio
@@ -658,6 +680,56 @@ def test_real_pg15_competing_claimers_skip_locked(disposable_pg15_session_factor
     assert winners[0].claimed_by in ("extraction-worker-pg15-A", "extraction-worker-pg15-B")
 
 
+@pytest.mark.asyncio
+async def test_real_pg15_deterministic_media_failure_terminalizes_and_persists_safe_error(
+    disposable_pg15_session_factory, pg15_context
+):
+    with disposable_pg15_session_factory() as db:
+        _, item = _create_event_and_item(
+            db,
+            pg15_context,
+            status="RECEIVED",
+            sequence=1,
+            media_ref={
+                "url": "https://mmg.whatsapp.net/d/f/test.enc",
+                "media_key": "valid_key",
+                "mime_type": "image/jpeg",
+                "expected_size": 1024,
+            },
+        )
+        item_id = item.id
+
+    mock_wuzapi = MagicMock(spec=WuzapiClient)
+    mock_wuzapi.download_media = AsyncMock(
+        side_effect=WuzapiError(
+            "Missing required cryptographic field.",
+            retryable=False,
+            reason="MISSING_CRYPTO_FIELD",
+        )
+    )
+    mock_transcription = MagicMock(spec=TranscriptionClient)
+    worker = ExtractionWorker(
+        worker_id="pg15-deterministic-media",
+        session_factory=disposable_pg15_session_factory,
+        dispatcher=ExtractionDispatcher(transcription_client=mock_transcription),
+        wuzapi_client=mock_wuzapi,
+    )
+
+    assert await worker.run_iteration() is True
+    mock_transcription.extract.assert_not_called()
+
+    with disposable_pg15_session_factory() as db:
+        refreshed = db.get(ProcessingItem, item_id)
+        assert refreshed is not None
+        assert refreshed.status == "EXTRACTION_FAILED"
+        assert refreshed.attempt_count == 1
+        assert refreshed.claimed_by is None
+        assert refreshed.lease_expires_at is None
+        assert refreshed.error_code == "EXTRACTION_ERROR"
+        assert refreshed.error_message_sanitized == "MISSING_CRYPTO_FIELD"
+        assert refreshed.outcome_reason is None
+
+
 def test_real_pg15_stale_lease_recovery(disposable_pg15_session_factory, pg15_context):
     """13. Real PostgreSQL 15: claim_expired_extracting_item_for_recovery reclaims expired leases."""
     past_time = datetime.now(timezone.utc) - timedelta(seconds=120)
@@ -768,4 +840,3 @@ async def test_real_pg15_no_transaction_held_during_transcription(disposable_pg1
         refreshed = db.get(ProcessingItem, item_id)
         assert refreshed is not None
         assert refreshed.status == "READY"
-

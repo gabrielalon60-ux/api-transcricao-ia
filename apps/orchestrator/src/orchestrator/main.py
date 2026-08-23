@@ -88,13 +88,33 @@ def extract_file_info(
     )
 
     if img:
-        mime_type = str(img.get("mimetype") or "image/jpeg")
-        file_size = int(img.get("fileLength") or img.get("fileSizeBytes") or 0)
-        file_sha256 = img.get("fileSha256") or img.get("fileHash")
+        mime_type = str(img.get("mimetype") or img.get("Mimetype") or "image/jpeg")
+        file_size = int(
+            img.get("fileLength")
+            or img.get("FileLength")
+            or img.get("fileSizeBytes")
+            or 0
+        )
+        file_sha256 = (
+            img.get("fileSHA256")
+            or img.get("fileSha256")
+            or img.get("FileSHA256")
+            or img.get("fileHash")
+        )
     elif doc:
-        mime_type = str(doc.get("mimetype") or "application/pdf")
-        file_size = int(doc.get("fileLength") or doc.get("fileSizeBytes") or 0)
-        file_sha256 = doc.get("fileSha256") or doc.get("fileHash")
+        mime_type = str(doc.get("mimetype") or doc.get("Mimetype") or "application/pdf")
+        file_size = int(
+            doc.get("fileLength")
+            or doc.get("FileLength")
+            or doc.get("fileSizeBytes")
+            or 0
+        )
+        file_sha256 = (
+            doc.get("fileSHA256")
+            or doc.get("fileSha256")
+            or doc.get("FileSHA256")
+            or doc.get("fileHash")
+        )
         original_filename = doc.get("fileName") or doc.get("title")
     elif payload.get("file_sha256"):
         file_sha256 = payload.get("file_sha256")
@@ -140,7 +160,9 @@ def extract_file_info(
     if message_type in ("image", "pdf"):
         media_msg = img if message_type == "image" else doc
         direct_path = (
-            media_msg.get("directPath") or media_msg.get("direct_path")
+            media_msg.get("directPath")
+            or media_msg.get("DirectPath")
+            or media_msg.get("direct_path")
             if isinstance(media_msg, dict)
             else None
         )

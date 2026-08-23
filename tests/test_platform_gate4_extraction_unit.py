@@ -80,7 +80,14 @@ async def test_wuzapi_download_media_contract():
 
     with patch("httpx.AsyncClient", return_value=mock_http_instance):
         data = await client.download_media(
-            media_ref={"media_key": "test_key", "direct_path": "/v/123.enc", "mime_type": "image/jpeg"},
+            media_ref={
+                "url": "https://mmg.whatsapp.net/d/f/123.enc",
+                "media_key": "test_key",
+                "direct_path": "/v/123.enc",
+                "mime_type": "image/jpeg",
+                "expected_sha256": "expected_sha",
+                "expected_size": 123,
+            },
             mime_type="image/jpeg",
         )
         assert data == b"MOCK_BINARY_IMAGE_BYTES"

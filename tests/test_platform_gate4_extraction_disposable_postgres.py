@@ -74,10 +74,11 @@ def test_1_end_to_end_wuzapi_webhook_persists_minimal_media_ref(disposable_postg
                 "imageMessage": {
                     "mimetype": "image/jpeg",
                     "fileLength": 2048,
-                    "fileSha256": "abc123sha256",
+                    "fileSHA256": "expected_sha_b64",
+                    "fileEncSHA256": "encrypted_sha_b64",
                     "directPath": "/v/t62.7118-24/123456_n.enc",
-                    "mediaKey": "sensitivekey_not_persisted",
-                    "url": "http://untrusted.cdn.com/123",
+                    "mediaKey": "media_key_b64",
+                    "URL": "https://mmg.whatsapp.net/d/f/123.enc",
                 },
             }
         },
@@ -86,9 +87,10 @@ def test_1_end_to_end_wuzapi_webhook_persists_minimal_media_ref(disposable_postg
     file_info = extract_file_info(wuzapi_payload, "image", text_content=None)
     assert file_info["media_ref"] is not None
     assert file_info["media_ref"]["direct_path"] == "/v/t62.7118-24/123456_n.enc"
-    # Plaintext media_key and raw url REMOVED from persisted media_ref
-    assert "media_key" not in file_info["media_ref"]
-    assert "url" not in file_info["media_ref"]
+    assert bool(file_info["media_ref"]["media_key"])
+    assert bool(file_info["media_ref"]["url"])
+    assert bool(file_info["media_ref"]["expected_sha256"])
+    assert bool(file_info["media_ref"]["file_enc_sha256"])
 
     evt_id = str(uuid.uuid4())
     from sqlalchemy.orm import Session
@@ -107,6 +109,9 @@ def test_1_end_to_end_wuzapi_webhook_persists_minimal_media_ref(disposable_postg
         assert claimed.id == item_id
         assert claimed.extraction_claim_token.startswith("claim-")
         assert claimed.media_ref["direct_path"] == "/v/t62.7118-24/123456_n.enc"
+        assert bool(claimed.media_ref["media_key"])
+        assert bool(claimed.media_ref["url"])
+        assert bool(claimed.media_ref["expected_sha256"])
 
 
 def test_2_extraction_claim_token_and_attempt_reset(disposable_postgres):

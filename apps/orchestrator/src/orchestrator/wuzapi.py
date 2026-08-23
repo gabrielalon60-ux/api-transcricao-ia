@@ -74,6 +74,34 @@ def _parse_file_length(val: Any) -> int:
     return max(0, num)
 
 
+def _require_text_field(field_name: str, val: Any) -> str:
+    """Return a required non-empty native media text field."""
+    if not isinstance(val, str) or not val.strip():
+        raise WuzapiError(
+            f"Missing or invalid required media field '{field_name}'.",
+            retryable=False,
+            reason="MISSING_MEDIA_FIELD",
+        )
+    return val
+
+
+def _is_integrity_failure_response(response: httpx.Response) -> bool:
+    """Recognize the stable v1.0.8 JSON envelope for plaintext hash mismatch."""
+    try:
+        body = response.json()
+    except Exception:
+        return False
+    if not isinstance(body, dict):
+        return False
+    error = body.get("error")
+    return (
+        body.get("code") == response.status_code
+        and body.get("success") is False
+        and isinstance(error, str)
+        and "hash of media plaintext doesn't match" in error.lower()
+    )
+
+
 class WuzapiClient:
     """Encapsulates outbound API requests to the WUZAPI server using pinned v1.0.8 contracts."""
 
@@ -178,7 +206,7 @@ class WuzapiClient:
             or media_ref.get("fileSHA256")
             or media_ref.get("FileSHA256")
         )
-        file_sha = _normalize_crypto_field("FileSHA256", raw_file_sha)
+        file_sha = _normalize_crypto_field("FileSHA256", raw_file_sha, required=True)
 
         raw_length = (
             media_ref.get("file_length")
@@ -187,14 +215,20 @@ class WuzapiClient:
             or media_ref.get("FileLength")
         )
         file_length = _parse_file_length(raw_length)
+        if file_length <= 0:
+            raise WuzapiError(
+                "Missing or invalid required media field 'FileLength'.",
+                retryable=False,
+                reason="INVALID_FILE_LENGTH",
+            )
 
-        mimetype_sent = (
+        mimetype_sent = _require_text_field("Mimetype", (
             media_ref.get("mime_type")
             or media_ref.get("mimetype")
             or media_ref.get("Mimetype")
             or mime_type
             or ""
-        )
+        ))
 
         direct_path = (
             media_ref.get("direct_path")
@@ -203,12 +237,12 @@ class WuzapiClient:
             or ""
         )
 
-        download_url = (
+        download_url = _require_text_field("Url", (
             media_ref.get("url")
             or media_ref.get("URL")
             or media_ref.get("media_url")
             or ""
-        )
+        ))
 
         payload = {
             "Url": download_url,
@@ -257,6 +291,13 @@ class WuzapiClient:
                 reason=f"CLIENT_ERROR_{response.status_code}",
             )
         if response.status_code >= 500:
+            if _is_integrity_failure_response(response):
+                raise WuzapiError(
+                    "WUZAPI rejected media integrity metadata.",
+                    retryable=False,
+                    http_status=response.status_code,
+                    reason="MEDIA_INTEGRITY_FAILURE",
+                )
             raise WuzapiError(
                 f"WUZAPI server error HTTP {response.status_code}",
                 retryable=True,

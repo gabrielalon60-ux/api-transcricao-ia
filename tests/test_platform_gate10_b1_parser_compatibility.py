@@ -1712,7 +1712,7 @@ def test_mode4_registration_with_multi_device_sender_alt(monkeypatch, test_db_se
 
 
 def test_extract_file_info_preserves_crypto_media_ref_fields():
-    """Verify that extract_file_info preserves media_key, direct_path, file_enc_sha256, url in media_ref."""
+    """Preserve exact native v1.0.8 media casing observed in the physical webhook."""
     payload = {
         "event": "Message",
         "instance": "inst-100",
@@ -1722,11 +1722,11 @@ def test_extract_file_info_preserves_crypto_media_ref_fields():
                 "imageMessage": {
                     "mimetype": "image/jpeg",
                     "fileLength": 45678,
-                    "fileSha256": "expected_sha_b64",
-                    "fileEncSha256": "enc_sha_b64",
+                    "fileSHA256": "expected_sha_b64",
+                    "fileEncSHA256": "enc_sha_b64",
                     "mediaKey": "secret_media_key_b64",
                     "directPath": "/v/t62.7118-24/img.enc",
-                    "url": "https://mmg.whatsapp.net/d/f/img.enc",
+                    "URL": "https://mmg.whatsapp.net/d/f/img.enc",
                 }
             },
         },
@@ -1744,4 +1744,37 @@ def test_extract_file_info_preserves_crypto_media_ref_fields():
     assert ref["expected_sha256"] == "expected_sha_b64"
     assert ref["expected_size"] == 45678
     assert ref["mime_type"] == "image/jpeg"
+    assert ref["url"] == "https://mmg.whatsapp.net/d/f/img.enc"
+
+
+def test_extract_file_info_accepts_pinned_native_exported_field_names():
+    payload = {
+        "event": "Message",
+        "instance": "inst-native-exported",
+        "data": {
+            "id": "msg-native-exported",
+            "message": {
+                "imageMessage": {
+                    "Mimetype": "image/jpeg",
+                    "FileLength": 45678,
+                    "FileSHA256": "expected_sha_b64",
+                    "FileEncSHA256": "enc_sha_b64",
+                    "MediaKey": "media_key_b64",
+                    "DirectPath": "/v/t62.7118-24/img.enc",
+                    "URL": "https://mmg.whatsapp.net/d/f/img.enc",
+                }
+            },
+        },
+    }
+
+    info = extract_file_info(payload, "image", text_content=None)
+    ref = info["media_ref"]
+    assert ref is not None
+    assert info["file_sha256"] == "expected_sha_b64"
+    assert info["file_size"] == 45678
+    assert info["file_mime_type"] == "image/jpeg"
+    assert ref["expected_sha256"] == "expected_sha_b64"
+    assert ref["file_enc_sha256"] == "enc_sha_b64"
+    assert ref["media_key"] == "media_key_b64"
+    assert ref["direct_path"] == "/v/t62.7118-24/img.enc"
     assert ref["url"] == "https://mmg.whatsapp.net/d/f/img.enc"

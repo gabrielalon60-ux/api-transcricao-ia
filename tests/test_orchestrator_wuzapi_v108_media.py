@@ -31,6 +31,20 @@ def wuzapi_client(orchestrator_settings):
     return WuzapiClient()
 
 
+def _valid_media_ref(**overrides):
+    media_ref = {
+        "url": "https://mmg.whatsapp.net/d/f/media.enc",
+        "direct_path": "/v/t62.7118-24/media.enc",
+        "media_key": "base64_media_key_str",
+        "mime_type": "image/jpeg",
+        "file_enc_sha256": "enc_sha_str",
+        "expected_sha256": "expected_sha_str",
+        "expected_size": 1234,
+    }
+    media_ref.update(overrides)
+    return media_ref
+
+
 @pytest.mark.asyncio
 async def test_download_image_native_endpoint_and_payload(wuzapi_client):
     sample_bytes = b"fake_jpeg_binary_content"
@@ -46,15 +60,12 @@ async def test_download_image_native_endpoint_and_payload(wuzapi_client):
     )
 
     with patch("httpx.AsyncClient.post", new_callable=AsyncMock, return_value=mock_response) as mock_post:
-        media_ref = {
-            "url": "https://mmg.whatsapp.net/d/f/img.enc",
-            "direct_path": "/v/t62.7118-24/img.enc",
-            "media_key": "base64_media_key_str",
-            "mime_type": "image/jpeg",
-            "file_enc_sha256": "enc_sha_str",
-            "expected_sha256": sha_b64,
-            "expected_size": len(sample_bytes),
-        }
+        media_ref = _valid_media_ref(
+            url="https://mmg.whatsapp.net/d/f/img.enc",
+            direct_path="/v/t62.7118-24/img.enc",
+            expected_sha256=sha_b64,
+            expected_size=len(sample_bytes),
+        )
 
         res = await wuzapi_client.download_media(media_ref, mime_type="image/jpeg")
         assert res == sample_bytes
@@ -81,11 +92,11 @@ async def test_download_document_native_endpoint_and_payload(wuzapi_client):
     )
 
     with patch("httpx.AsyncClient.post", new_callable=AsyncMock, return_value=mock_response) as mock_post:
-        media_ref = {
-            "direct_path": "/v/t62.7118-24/doc.enc",
-            "media_key": "doc_key",
-            "mime_type": "application/pdf",
-        }
+        media_ref = _valid_media_ref(
+            direct_path="/v/t62.7118-24/doc.enc",
+            media_key="doc_key",
+            mime_type="application/pdf",
+        )
 
         res = await wuzapi_client.download_media(media_ref, mime_type="application/pdf")
         assert res == sample_bytes
@@ -104,7 +115,7 @@ async def test_download_audio_video_sticker_endpoints(wuzapi_client):
     )
 
     with patch("httpx.AsyncClient.post", new_callable=AsyncMock, return_value=mock_response) as mock_post:
-        media_ref = {"media_key": "key", "direct_path": "/path"}
+        media_ref = _valid_media_ref(media_key="key", mime_type="audio/ogg")
         res = await wuzapi_client.download_media(media_ref, mime_type="audio/ogg")
         assert res == sample_bytes
         assert mock_post.call_args[0][0] == "http://wuzapi:8080/chat/downloadaudio"
@@ -112,11 +123,24 @@ async def test_download_audio_video_sticker_endpoints(wuzapi_client):
 
 @pytest.mark.asyncio
 async def test_download_missing_media_key_fails_closed_deterministic(wuzapi_client):
-    media_ref = {"direct_path": "/path", "mime_type": "image/jpeg"}
-    with pytest.raises(WuzapiError) as exc_info:
-        await wuzapi_client.download_media(media_ref, mime_type="image/jpeg")
-    assert exc_info.value.retryable is False
-    assert exc_info.value.reason == "MISSING_CRYPTO_FIELD"
+    media_ref = _valid_media_ref(media_key="")
+    with patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post:
+        with pytest.raises(WuzapiError) as exc_info:
+            await wuzapi_client.download_media(media_ref, mime_type="image/jpeg")
+        assert exc_info.value.retryable is False
+        assert exc_info.value.reason == "MISSING_CRYPTO_FIELD"
+        mock_post.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_download_missing_plaintext_hash_fails_before_http(wuzapi_client):
+    media_ref = _valid_media_ref(expected_sha256="")
+    with patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post:
+        with pytest.raises(WuzapiError) as exc_info:
+            await wuzapi_client.download_media(media_ref, mime_type="image/jpeg")
+        assert exc_info.value.retryable is False
+        assert exc_info.value.reason == "MISSING_CRYPTO_FIELD"
+        mock_post.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -127,7 +151,7 @@ async def test_download_404_classified_non_retryable(wuzapi_client):
         request=httpx.Request("POST", "http://wuzapi:8080/chat/downloadimage"),
     )
     with patch("httpx.AsyncClient.post", new_callable=AsyncMock, return_value=mock_response):
-        media_ref = {"media_key": "key", "direct_path": "/path"}
+        media_ref = _valid_media_ref(media_key="key")
         with pytest.raises(WuzapiError) as exc_info:
             await wuzapi_client.download_media(media_ref, mime_type="image/jpeg")
         assert exc_info.value.retryable is False
@@ -143,7 +167,7 @@ async def test_download_500_classified_retryable(wuzapi_client):
         request=httpx.Request("POST", "http://wuzapi:8080/chat/downloadimage"),
     )
     with patch("httpx.AsyncClient.post", new_callable=AsyncMock, return_value=mock_response):
-        media_ref = {"media_key": "key", "direct_path": "/path"}
+        media_ref = _valid_media_ref(media_key="key")
         with pytest.raises(WuzapiError) as exc_info:
             await wuzapi_client.download_media(media_ref, mime_type="image/jpeg")
         assert exc_info.value.retryable is True
@@ -151,9 +175,28 @@ async def test_download_500_classified_retryable(wuzapi_client):
 
 
 @pytest.mark.asyncio
+async def test_download_integrity_500_classified_non_retryable(wuzapi_client):
+    mock_response = httpx.Response(
+        status_code=500,
+        json={
+            "code": 500,
+            "error": "failed to download image hash of media plaintext doesn't match",
+            "success": False,
+        },
+        request=httpx.Request("POST", "http://wuzapi:8080/chat/downloadimage"),
+    )
+    with patch("httpx.AsyncClient.post", new_callable=AsyncMock, return_value=mock_response):
+        with pytest.raises(WuzapiError) as exc_info:
+            await wuzapi_client.download_media(_valid_media_ref(), mime_type="image/jpeg")
+        assert exc_info.value.retryable is False
+        assert exc_info.value.http_status == 500
+        assert exc_info.value.reason == "MEDIA_INTEGRITY_FAILURE"
+
+
+@pytest.mark.asyncio
 async def test_download_timeout_classified_retryable(wuzapi_client):
     with patch("httpx.AsyncClient.post", new_callable=AsyncMock, side_effect=httpx.TimeoutException("Timeout")):
-        media_ref = {"media_key": "key", "direct_path": "/path"}
+        media_ref = _valid_media_ref(media_key="key")
         with pytest.raises(WuzapiError) as exc_info:
             await wuzapi_client.download_media(media_ref, mime_type="image/jpeg")
         assert exc_info.value.retryable is True
@@ -168,7 +211,7 @@ async def test_download_malformed_base64_fails_closed(wuzapi_client):
         request=httpx.Request("POST", "http://wuzapi:8080/chat/downloadimage"),
     )
     with patch("httpx.AsyncClient.post", new_callable=AsyncMock, return_value=mock_response):
-        media_ref = {"media_key": "key", "direct_path": "/path"}
+        media_ref = _valid_media_ref(media_key="key")
         with pytest.raises(WuzapiError) as exc_info:
             await wuzapi_client.download_media(media_ref, mime_type="image/jpeg")
         assert exc_info.value.retryable is False
@@ -185,7 +228,7 @@ async def test_download_size_limit_exceeded(wuzapi_client):
         request=httpx.Request("POST", "http://wuzapi:8080/chat/downloadimage"),
     )
     with patch("httpx.AsyncClient.post", new_callable=AsyncMock, return_value=mock_response):
-        media_ref = {"media_key": "key", "direct_path": "/path"}
+        media_ref = _valid_media_ref(media_key="key")
         with pytest.raises(WuzapiError) as exc_info:
             await wuzapi_client.download_media(media_ref, mime_type="image/jpeg")
         assert exc_info.value.retryable is False

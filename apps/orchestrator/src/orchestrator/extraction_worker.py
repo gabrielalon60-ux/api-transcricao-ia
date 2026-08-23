@@ -56,17 +56,15 @@ class ExtractionWorker:
             user = db.query(User).filter_by(id=user_id).first()
             return user.phone_number if user and user.phone_number else ""
 
-    async def _download_media_bytes(self, phone: str, item: ProcessingItem) -> tuple[Optional[bytes], bool]:
+    async def _download_media_bytes(
+        self, phone: str, item: ProcessingItem
+    ) -> tuple[Optional[bytes], bool, Optional[str]]:
         """Downloads media from WUZAPI outside of any open database transaction.
 
-        Returns (bytes, retryable).
+        Returns (bytes, retryable, safe_failure_reason).
         """
         if not item.media_ref or not isinstance(item.media_ref, dict):
-            return None, False
-
-        direct_path = item.media_ref.get("direct_path")
-        if not direct_path:
-            return None, False
+            return None, False, "MEDIA_METADATA_INCOMPLETE"
 
         try:
             downloaded = await self.wuzapi_client.download_media(
@@ -74,34 +72,33 @@ class ExtractionWorker:
                 mime_type=item.file_mime_type,
                 phone=phone,
             )
-            return downloaded, True
+            return downloaded, True, None
         except WuzapiError as exc:
             logger.warning(
                 f"WUZAPI media download failed for item {item.id} (retryable={exc.retryable}, reason={exc.reason}): {exc.message}"
             )
-            return None, exc.retryable
+            return None, exc.retryable, exc.reason
         except Exception as exc:
             logger.warning(f"Unexpected media download failure for item {item.id}: {exc}")
-            return None, False
+            return None, False, "UNEXPECTED_MEDIA_DOWNLOAD_ERROR"
 
     async def process_claimed_item(self, item: ProcessingItem) -> Optional[ProcessingItem]:
         """Processes one claimed item through ExtractionDispatcher with strict transaction boundaries."""
         start_ts = time.monotonic()
-        has_direct_path = bool(
-            item.media_ref and isinstance(item.media_ref, dict) and item.media_ref.get("direct_path")
-        )
+        has_native_media_ref = bool(item.media_ref and isinstance(item.media_ref, dict))
 
         file_bytes: Optional[bytes] = None
         is_retryable: bool = False
-        if has_direct_path:
+        failure_reason: Optional[str] = None
+        if has_native_media_ref:
             # 1. Resolve phone in a short-lived session that closes before network I/O
             phone = self._resolve_user_phone(item.user_id)
             # 2. Download media outside of any database transaction
-            file_bytes, is_retryable = await self._download_media_bytes(phone, item)
+            file_bytes, is_retryable, failure_reason = await self._download_media_bytes(phone, item)
 
         # 3. Open scoped session to apply extraction result or fail-closed failure
         with self.session_factory() as db:
-            if has_direct_path and not file_bytes:
+            if has_native_media_ref and not file_bytes:
                 logger.error(
                     f"Failing extraction for item {item.id} due to missing media bytes from WUZAPI (retryable={is_retryable})"
                 )
@@ -111,6 +108,7 @@ class ExtractionWorker:
                     dispatched_claim_token=item.extraction_claim_token,
                     error_code="EXTRACTION_ERROR",
                     retryable=is_retryable,
+                    error_message_sanitized=failure_reason,
                 )
             else:
                 result = await self.dispatcher.process_item(
