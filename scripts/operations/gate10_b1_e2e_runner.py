@@ -26,6 +26,7 @@ import os
 import socket
 import subprocess
 import sys
+import uuid
 from pathlib import Path
 
 ROOT_DIR = Path(__file__).resolve().parent.parent.parent
@@ -371,6 +372,7 @@ def run_seed_fixtures() -> None:
 
     reg_pepper = get_local_registration_pepper()
     reg_hash = hash_secret("org-g10b1-test:" + reg_secret, reg_pepper)
+    new_instance_id = str(uuid.uuid4())
 
     # 5. Fail-Closed Idempotent PL/pgSQL Block
     plpgsql_script = f"""
@@ -437,7 +439,7 @@ def run_seed_fixtures() -> None:
 
         IF v_inst_count > 0 THEN
             IF v_inst_count > 1
-               OR v_inst_id != 'inst-g10b1-test'
+               OR (v_inst_id != 'inst-g10b1-test' AND v_inst_ext != '{external_instance_id}')
                OR v_inst_org != 'org-g10b1-test'
                OR v_inst_bot != 'bot-g10b1-test'
                OR v_inst_prov != 'WUZAPI'
@@ -447,7 +449,7 @@ def run_seed_fixtures() -> None:
             END IF;
         ELSE
             INSERT INTO instances (id, organization_id, bot_id, provider, external_instance_id, phone_number, status)
-            VALUES ('inst-g10b1-test', 'org-g10b1-test', 'bot-g10b1-test', 'WUZAPI', '{external_instance_id}', '5511999990000', 'ACTIVE');
+            VALUES ('{new_instance_id}', 'org-g10b1-test', 'bot-g10b1-test', 'WUZAPI', '{external_instance_id}', '5511999990000', 'ACTIVE');
         END IF;
     END $$;
     """
