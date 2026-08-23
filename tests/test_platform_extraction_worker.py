@@ -19,7 +19,7 @@ from orchestrator.services.extraction_dispatcher import (
     claim_next_received_item_for_extraction,
 )
 from orchestrator.transcription_client import TranscriptionClient, TranscriptionClientError
-from orchestrator.wuzapi import WuzapiClient
+from orchestrator.wuzapi import WuzapiClient, WuzapiError
 
 DISPOSABLE_PG15_URL = "postgresql://test_user:test_password@127.0.0.1:15434/extraction_worker_test"
 
@@ -283,20 +283,20 @@ async def test_sqlite_extraction_worker_handles_transcription_failure(mock_sqlit
 
 
 @pytest.mark.asyncio
-async def test_sqlite_extraction_worker_media_download_failure_fails_closed(mock_sqlite_db, sqlite_context):
-    """7. Failed media download on item with direct_path fails closed without mock fallback."""
+async def test_sqlite_extraction_worker_transient_media_download_failure_retries(mock_sqlite_db, sqlite_context):
+    """7. Transient media download failure (5xx/timeout) resets to RECEIVED for retry."""
     with mock_sqlite_db() as db:
         _, item = _create_event_and_item(
             db,
             sqlite_context,
             status="RECEIVED",
             sequence=1,
-            media_ref={"direct_path": "/media/test.jpg", "external_message_id": "msg-123"},
+            media_ref={"direct_path": "/media/test.jpg", "media_key": "valid_key", "external_message_id": "msg-123"},
         )
         item_id = item.id
 
     mock_wuzapi = MagicMock(spec=WuzapiClient)
-    mock_wuzapi.download_media = AsyncMock(side_effect=Exception("WUZAPI media 404"))
+    mock_wuzapi.download_media = AsyncMock(side_effect=WuzapiError("WUZAPI 500 timeout", retryable=True, http_status=500))
 
     mock_transcription = MagicMock(spec=TranscriptionClient)
     dispatcher = ExtractionDispatcher(transcription_client=mock_transcription)
@@ -323,6 +323,88 @@ async def test_sqlite_extraction_worker_media_download_failure_fails_closed(mock
 
 
 @pytest.mark.asyncio
+async def test_sqlite_extraction_worker_deterministic_404_media_failure_terminalizes_immediately(mock_sqlite_db, sqlite_context):
+    """7b. Deterministic 404 media download failure terminalizes immediately to EXTRACTION_FAILED (no retry storm)."""
+    with mock_sqlite_db() as db:
+        _, item = _create_event_and_item(
+            db,
+            sqlite_context,
+            status="RECEIVED",
+            sequence=1,
+            media_ref={"direct_path": "/media/nonexistent.jpg", "media_key": "valid_key", "external_message_id": "msg-404"},
+        )
+        item_id = item.id
+
+    mock_wuzapi = MagicMock(spec=WuzapiClient)
+    mock_wuzapi.download_media = AsyncMock(
+        side_effect=WuzapiError("WUZAPI media 404 Not Found", retryable=False, http_status=404, reason="NOT_FOUND_404")
+    )
+
+    mock_transcription = MagicMock(spec=TranscriptionClient)
+    dispatcher = ExtractionDispatcher(transcription_client=mock_transcription)
+
+    worker = ExtractionWorker(
+        worker_id="test-media-404",
+        session_factory=mock_sqlite_db,
+        dispatcher=dispatcher,
+        wuzapi_client=mock_wuzapi,
+    )
+
+    claimed = await worker.run_iteration()
+    assert claimed is True
+
+    # Transcription service must NOT have been called!
+    mock_transcription.extract.assert_not_called()
+
+    with mock_sqlite_db() as db:
+        refreshed = db.get(ProcessingItem, item_id)
+        assert refreshed is not None
+        # Must immediately transition to EXTRACTION_FAILED on attempt 1 without immediate retry
+        assert refreshed.status == "EXTRACTION_FAILED"
+        assert refreshed.attempt_count == 1
+        assert refreshed.claimed_by is None
+
+
+@pytest.mark.asyncio
+async def test_sqlite_extraction_worker_missing_crypto_field_terminalizes_immediately(mock_sqlite_db, sqlite_context):
+    """7c. Missing required MediaKey terminalizes immediately to EXTRACTION_FAILED (no retry storm)."""
+    with mock_sqlite_db() as db:
+        _, item = _create_event_and_item(
+            db,
+            sqlite_context,
+            status="RECEIVED",
+            sequence=1,
+            media_ref={"direct_path": "/media/test.jpg"},  # Missing media_key
+        )
+        item_id = item.id
+
+    mock_wuzapi = MagicMock(spec=WuzapiClient)
+    mock_wuzapi.download_media = AsyncMock(
+        side_effect=WuzapiError("Missing required cryptographic field 'media_key'", retryable=False, reason="MISSING_CRYPTO_FIELD")
+    )
+
+    mock_transcription = MagicMock(spec=TranscriptionClient)
+    dispatcher = ExtractionDispatcher(transcription_client=mock_transcription)
+
+    worker = ExtractionWorker(
+        worker_id="test-missing-key",
+        session_factory=mock_sqlite_db,
+        dispatcher=dispatcher,
+        wuzapi_client=mock_wuzapi,
+    )
+
+    claimed = await worker.run_iteration()
+    assert claimed is True
+    mock_transcription.extract.assert_not_called()
+
+    with mock_sqlite_db() as db:
+        refreshed = db.get(ProcessingItem, item_id)
+        assert refreshed is not None
+        assert refreshed.status == "EXTRACTION_FAILED"
+        assert refreshed.attempt_count == 1
+
+
+@pytest.mark.asyncio
 async def test_no_database_transaction_held_during_wuzapi_media_download(mock_sqlite_db, sqlite_context):
     """8. Proves no database transaction is held while WUZAPI media download is awaited."""
     with mock_sqlite_db() as db:
@@ -331,13 +413,13 @@ async def test_no_database_transaction_held_during_wuzapi_media_download(mock_sq
             sqlite_context,
             status="RECEIVED",
             sequence=1,
-            media_ref={"direct_path": "/media/test.jpg", "external_message_id": "msg-123"},
+            media_ref={"direct_path": "/media/test.jpg", "media_key": "valid_key", "external_message_id": "msg-123"},
         )
         item_id = item.id
 
     transaction_state_during_download = []
 
-    async def fake_download_media(phone, external_message_id, direct_path):
+    async def fake_download_media(*args, **kwargs):
         # Inspect if any transaction is active on the session factory during network I/O
         with mock_sqlite_db() as test_session:
             transaction_state_during_download.append(test_session.in_transaction())

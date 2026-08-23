@@ -1709,3 +1709,39 @@ def test_mode4_registration_with_multi_device_sender_alt(monkeypatch, test_db_se
     mock_send.assert_awaited_once()
     called_phone = mock_send.call_args[0][0]
     assert called_phone == "554791734195"
+
+
+def test_extract_file_info_preserves_crypto_media_ref_fields():
+    """Verify that extract_file_info preserves media_key, direct_path, file_enc_sha256, url in media_ref."""
+    payload = {
+        "event": "Message",
+        "instance": "inst-100",
+        "data": {
+            "id": "msg-media-1",
+            "message": {
+                "imageMessage": {
+                    "mimetype": "image/jpeg",
+                    "fileLength": 45678,
+                    "fileSha256": "expected_sha_b64",
+                    "fileEncSha256": "enc_sha_b64",
+                    "mediaKey": "secret_media_key_b64",
+                    "directPath": "/v/t62.7118-24/img.enc",
+                    "url": "https://mmg.whatsapp.net/d/f/img.enc",
+                }
+            },
+        },
+    }
+    info = extract_file_info(payload, "image", text_content=None)
+    assert info["message_type"] == "image"
+    assert info["file_mime_type"] == "image/jpeg"
+    assert info["file_size"] == 45678
+    assert info["file_sha256"] == "expected_sha_b64"
+    assert info["media_ref"] is not None
+    ref = info["media_ref"]
+    assert ref["media_key"] == "secret_media_key_b64"
+    assert ref["direct_path"] == "/v/t62.7118-24/img.enc"
+    assert ref["file_enc_sha256"] == "enc_sha_b64"
+    assert ref["expected_sha256"] == "expected_sha_b64"
+    assert ref["expected_size"] == 45678
+    assert ref["mime_type"] == "image/jpeg"
+    assert ref["url"] == "https://mmg.whatsapp.net/d/f/img.enc"

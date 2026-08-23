@@ -61,24 +61,28 @@ def test_error_sanitization_and_types():
 
 @pytest.mark.asyncio
 async def test_wuzapi_download_media_contract():
+    import base64
     client = WuzapiClient()
     client.base_url = "http://wuzapi-test:8080"
     client.token = "wuzapi_secret_token"
     client._headers["token"] = "wuzapi_secret_token"
 
     mock_resp = MagicMock()
-    mock_resp.content = b"MOCK_BINARY_IMAGE_BYTES"
-    mock_resp.raise_for_status = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {
+        "Mimetype": "image/jpeg",
+        "Data": f"data:image/jpeg;base64,{base64.b64encode(b'MOCK_BINARY_IMAGE_BYTES').decode('utf-8')}",
+    }
 
     mock_http_instance = AsyncMock()
     mock_http_instance.post.return_value = mock_resp
     mock_http_instance.__aenter__.return_value = mock_http_instance
 
     with patch("httpx.AsyncClient", return_value=mock_http_instance):
-        data = await client.download_media(phone="5511999999999", external_message_id="msg-123", direct_path="/v/123.enc")
-        assert data == b"MOCK_BINARY_IMAGE_BYTES"
-        mock_http_instance.post.assert_called_once_with(
-            "http://wuzapi-test:8080/chat/media/download",
-            headers={"token": "wuzapi_secret_token", "Content-Type": "application/json"},
-            json={"phone": "5511999999999", "message_id": "msg-123", "direct_path": "/v/123.enc"},
+        data = await client.download_media(
+            media_ref={"media_key": "test_key", "direct_path": "/v/123.enc", "mime_type": "image/jpeg"},
+            mime_type="image/jpeg",
         )
+        assert data == b"MOCK_BINARY_IMAGE_BYTES"
+        mock_http_instance.post.assert_called_once()
+        assert mock_http_instance.post.call_args[0][0] == "http://wuzapi-test:8080/chat/downloadimage"

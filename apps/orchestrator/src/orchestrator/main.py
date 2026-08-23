@@ -144,6 +144,27 @@ def extract_file_info(
             if isinstance(media_msg, dict)
             else None
         )
+        media_key = (
+            media_msg.get("mediaKey") or media_msg.get("MediaKey") or media_msg.get("media_key")
+            if isinstance(media_msg, dict)
+            else None
+        )
+        file_enc_sha256 = (
+            media_msg.get("fileEncSha256")
+            or media_msg.get("fileEncSHA256")
+            or media_msg.get("FileEncSHA256")
+            or media_msg.get("file_enc_sha256")
+            if isinstance(media_msg, dict)
+            else None
+        )
+        url = (
+            media_msg.get("url")
+            or media_msg.get("URL")
+            or media_msg.get("mediaUrl")
+            or media_msg.get("media_url")
+            if isinstance(media_msg, dict)
+            else None
+        )
 
         media_ref = {
             "version": "1.0",
@@ -151,9 +172,12 @@ def extract_file_info(
             "external_instance_id": ext_inst_id,
             "external_message_id": ext_msg_id,
             "direct_path": direct_path,
+            "media_key": media_key,
+            "file_enc_sha256": file_enc_sha256,
             "expected_sha256": file_sha256,
             "expected_size": file_size,
             "mime_type": mime_type,
+            "url": url,
         }
 
     if not file_sha256:

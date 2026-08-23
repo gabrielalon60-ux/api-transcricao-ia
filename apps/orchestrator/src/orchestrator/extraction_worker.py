@@ -19,7 +19,7 @@ from orchestrator.services.extraction_dispatcher import (
     claim_next_received_item_for_extraction,
 )
 from orchestrator.transcription_client import TranscriptionClient
-from orchestrator.wuzapi import WuzapiClient
+from orchestrator.wuzapi import WuzapiClient, WuzapiError
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +46,7 @@ class ExtractionWorker:
         self.running = True
 
     def stop(self) -> None:
-        """Signals the worker loop to stop gracefully after current item completes."""
+        """Signals the worker loop to stop gracefully after current iteration."""
         logger.info(f"Extraction worker {self.worker_id} stop requested.")
         self.running = False
 
@@ -56,26 +56,33 @@ class ExtractionWorker:
             user = db.query(User).filter_by(id=user_id).first()
             return user.phone_number if user and user.phone_number else ""
 
-    async def _download_media_bytes(self, phone: str, item: ProcessingItem) -> Optional[bytes]:
-        """Downloads media from WUZAPI outside of any open database transaction."""
+    async def _download_media_bytes(self, phone: str, item: ProcessingItem) -> tuple[Optional[bytes], bool]:
+        """Downloads media from WUZAPI outside of any open database transaction.
+
+        Returns (bytes, retryable).
+        """
         if not item.media_ref or not isinstance(item.media_ref, dict):
-            return None
+            return None, False
 
         direct_path = item.media_ref.get("direct_path")
         if not direct_path:
-            return None
-
-        external_message_id = item.media_ref.get("external_message_id") or ""
+            return None, False
 
         try:
-            return await self.wuzapi_client.download_media(
+            downloaded = await self.wuzapi_client.download_media(
+                media_ref=item.media_ref,
+                mime_type=item.file_mime_type,
                 phone=phone,
-                external_message_id=external_message_id,
-                direct_path=direct_path,
             )
+            return downloaded, True
+        except WuzapiError as exc:
+            logger.warning(
+                f"WUZAPI media download failed for item {item.id} (retryable={exc.retryable}, reason={exc.reason}): {exc.message}"
+            )
+            return None, exc.retryable
         except Exception as exc:
-            logger.warning(f"WUZAPI media download failed for item {item.id}: {exc}")
-            return None
+            logger.warning(f"Unexpected media download failure for item {item.id}: {exc}")
+            return None, False
 
     async def process_claimed_item(self, item: ProcessingItem) -> Optional[ProcessingItem]:
         """Processes one claimed item through ExtractionDispatcher with strict transaction boundaries."""
@@ -85,24 +92,25 @@ class ExtractionWorker:
         )
 
         file_bytes: Optional[bytes] = None
+        is_retryable: bool = False
         if has_direct_path:
             # 1. Resolve phone in a short-lived session that closes before network I/O
             phone = self._resolve_user_phone(item.user_id)
             # 2. Download media outside of any database transaction
-            file_bytes = await self._download_media_bytes(phone, item)
+            file_bytes, is_retryable = await self._download_media_bytes(phone, item)
 
         # 3. Open scoped session to apply extraction result or fail-closed failure
         with self.session_factory() as db:
             if has_direct_path and not file_bytes:
                 logger.error(
-                    f"Failing extraction for item {item.id} due to missing media bytes from WUZAPI"
+                    f"Failing extraction for item {item.id} due to missing media bytes from WUZAPI (retryable={is_retryable})"
                 )
                 result = apply_extraction_failure(
                     db,
                     processing_item_id=item.id,
                     dispatched_claim_token=item.extraction_claim_token,
                     error_code="EXTRACTION_ERROR",
-                    retryable=True,
+                    retryable=is_retryable,
                 )
             else:
                 result = await self.dispatcher.process_item(
