@@ -3,7 +3,7 @@
 > Convenience summary only. `TASKS_TESTS_GATES.md` is the operational source of truth.
 
 ## Current Gate
-**Gate 10 — Security / Release Candidate (G10-A APPROVED / COMPLETE LOCALLY; G10-B1 P1 PUSHED; G10-B1 P2 COMPLETE / RUNNING; G10-B1 P3 COMPLETE / SESSION AUTHENTICATED; PRE-REAL-MESSAGE FIXTURES SEEDED / FINAL REVIEW; REAL-MESSAGE AUTHORIZATION HOLD)**
+**Gate 10 — Security / Release Candidate (G10-A APPROVED / COMPLETE LOCALLY; G10-B1 PHYSICAL CLEAN REHEARSAL COMPLETE / PROVEN E2E; P6/P7/P8 CLOSED; REAL WHATSAPP-TO-WRITER-TO-COMPLETED PATH PROVEN; G10-B2 / G10-C NOT AUTHORIZED; OVERALL G10 STILL HELD)**
 
 ## Last User-Approved Gate
 **Gate 9 — Operations and observability (Approved on 2026-08-15, America/Sao_Paulo)**
@@ -100,10 +100,11 @@ The standalone Transcription IA 1.0 was validated before this platform initiativ
 - Gate 10 G10-A Correction Pass 2: COMPLETE. Outstanding and active status sets, Organization-row serialization/revalidation/anti-starvation, per-physical-attempt provider permits, two-second acquisition timeout, pre-I/O zero-usage behavior, severity-specific exception rules, `queue_repository.py` scope, and the G10-A/B/C task/test exit matrix are frozen.
 - Gate 10 G10-A maximum repository file scope: RE-FROZEN in `.agents/IMPLEMENTATION_PLAN_GATE_10.md`; final HOLD review PASSED and local implementation was explicitly authorized on 2026-08-16.
 - Gate 10 execution boundary: three separate HOLDs — G10-A repository hardening, G10-B staging adoption/security validation, and G10-C production release.
-- Gate 10 G10-A status: APPROVED / COMPLETE LOCALLY on 2026-08-17 by explicit user decision. G10-B / G10-C remain NOT AUTHORIZED.
+- Gate 10 G10-A status: APPROVED / COMPLETE LOCALLY on 2026-08-17 by explicit user decision.
+- Gate 10 G10-B1 status: PHYSICAL CLEAN REHEARSAL COMPLETE / PROVEN E2E. P6/P7/P8 closed. WhatsApp -> WUZAPI -> media acquisition -> Transcription -> Gemini -> usage_logs -> normalization -> READY -> Enterprise binding -> FIFO -> human clarification -> Writer -> write_ledger -> financial_records -> COMPLETED -> final WhatsApp ACK verified. Monetary PT-BR parsing fix frozen in commit `c7430e90ab6d96a6217bbaa2f28a30a4487673be`. Historical failed items and original DB preserved as evidence. G10-B2 / G10-C remain NOT AUTHORIZED.
 - Gate 10 G10-A verification: applicable local/disposable suites passed — G10-A 27; Gates 1–3 regression 90; Gate 4 unit 68 with 12 environment skips; clean Gate 4 PostgreSQL 126; Gates 5–7/9 unit 227 with 1 environment skip; Gates 6–8 PostgreSQL/E2E 135. compileall, Ruff, and targeted mypy passed.
 - Gate 10 audit status: **PASSED**. `pypdf` upgraded to `6.16.1` (resolving `CVE-2026-71852` and `CVE-2026-71870` Medium); unused `python-jose` dependency removed (resolving `CVE-2024-23342` High / `ecdsa 0.19.2`). Trivy reports 0 vulnerabilities. G10-T08 complete locally.
-- Gate 10 audit rerun/cleanup: pinned Gitleaks physically completed over full history plus exactly Git-tracked and non-ignored untracked release-candidate files. Five historical and three worktree non-secret fixture/documentation matches have exact dispositions; zero unresolved secret findings remain. Docker stabilized, the named disposable PostgreSQL container was removed, and all invocation-owned `C:\tmp` directories/orphaned test processes were cleaned.
+- Gate 10 audit rerun/cleanup: pinned Gitleaks physically completed over full history plus exactly Git-tracked and non-ignored untracked release-candidate files. Five historical and three worktree non-secret fixture/documentation matches have exact dispositions; zero unresolved secret findings remain.
 - Gate 10 staging/VPS/production access: NOT AUTHORIZED.
 - Gate 10 tasks/tests/release checklist: all unchecked.
 - G10-APPROVED: false.

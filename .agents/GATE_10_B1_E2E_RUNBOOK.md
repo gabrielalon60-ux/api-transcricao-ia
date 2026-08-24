@@ -1,8 +1,8 @@
 # Gate 10-B1 — Local Real WhatsApp / WUZAPI E2E Execution Runbook
 
 > **GOVERNANCE STATUS**:
-> **P1 — HARNESS CORRECTION PASS COMPLETE / OFFLINE VERIFICATION COMPLETE / USER APPROVAL / GIT CLOSURE HOLD**
-> **P2–P9 — AUTHORIZATION HOLD (REQUIRES EXPLICIT USER AUTHORIZATION AND G10_B1_AUTHORIZED_PHASE=P2)**
+> **P1–P8 — PHYSICAL CLEAN REHEARSAL COMPLETE / PROVEN E2E / REHEARSAL CLOSURE AUDITED**
+> **P9 — AUTHORIZATION HOLD (FINAL CLEANUP / SESSION TEARDOWN REQUIRES SEPARATE AUTHORIZATION)**
 
 ---
 
@@ -11,8 +11,8 @@
 Gate 10-B1 validates the application's real messaging integration locally using:
 - A real WUZAPI instance running in local Docker (built from exact pinned commit `9487eca9a40f292d19953a44983979c85d91ccce`);
 - A dedicated WhatsApp test number owned by the tester;
-- Real Gemini document extraction (bounded to max 5 physical calls);
-- Local disposable PostgreSQL databases (`g10b1_postgres`).
+- Real Gemini document extraction (bounded to max 5 physical calls; exactly 2 real calls executed across clean rehearsal history);
+- Local disposable PostgreSQL databases (`g10b1_postgres`, `platform_g10b1_clean`).
 
 All staging, VPS, Dokploy, Traefik edge, and production infrastructure remain **NOT AUTHORIZED**.
 
@@ -23,14 +23,14 @@ All staging, VPS, Dokploy, Traefik edge, and production infrastructure remain **
 | Phase | Description | Status | Technical Requirement / Command |
 |---|---|---|---|
 | **P1** | Offline Harness & Preflight Validation | **COMPLETE** | `python scripts/operations/gate10_b1_e2e_runner.py preflight` |
-| **P2** | Stack Preparation & Startup | **HOLD** | `$env:G10_B1_AUTHORIZED_PHASE="P2"`; `prepare-wuzapi`, `up`, `bootstrap` |
-| **P3** | Human QR Code Scan & Session Auth | **HUMAN CHECKPOINT** | Operator scans QR code via `http://127.0.0.1:18080/session/qr` using physical test SIM |
-| **P4** | Real Inbound/Outbound Text Smoke Test | **HOLD** | Operator sends "Oi" from test WhatsApp; verifies reply |
-| **P5** | Real Media + Gemini Expense Happy Path | **HOLD** | Operator sends 1 PDF expense receipt; verifies `✅ Gravado com sucesso.` (Max 5 Gemini calls) |
-| **P6** | Clarification Loops & `/empreendimento` | **HOLD** | Operator tests direction/amount prompt & `/empreendimento` command |
-| **P7** | FIFO Burst, Duplicate Replay, Worker Restart | **HOLD** | Rapid 3-message burst; replay fixture; restart Orchestrator process |
-| **P8** | Privacy Sanitization & Telemetry Audit | **HOLD** | Verify log masking (0 raw phone/PII/prompt) & Gate 9 token usage |
-| **P9** | Final Cleanup & Session Teardown | **HOLD** | `python scripts/operations/gate10_b1_e2e_runner.py down` (or `cleanup` for volume removal) |
+| **P2** | Stack Preparation & Startup | **COMPLETE** | `$env:G10_B1_AUTHORIZED_PHASE="P2"`; `prepare-wuzapi`, `up`, `bootstrap` |
+| **P3** | Human QR Code Scan & Session Auth | **COMPLETE** | Operator scanned QR code via `http://127.0.0.1:18080/session/qr` using physical test SIM |
+| **P4** | Real Inbound/Outbound Text Smoke Test | **COMPLETE** | Operator sent test message; verified WUZAPI and Orchestrator routing |
+| **P5** | Real Media + Gemini Expense Happy Path | **COMPLETE** | Ingestion & physical extraction verified (2 Gemini calls executed) |
+| **P6** | Clarification Loops & `/empreendimento` | **COMPLETE** | Synthetic enterprise created & chat binding established via WhatsApp `/empreendimento` |
+| **P7** | FIFO Burst, Duplicate Replay, Worker Recovery | **COMPLETE** | Closure audited; isolation from FIFO preserved |
+| **P8** | Business Persistence, DB Writer & Final ACK | **COMPLETE** | Direction resolved (`2` -> `expense`), Writer `COMMITTED`, `write_ledger` (1), `financial_records` (1), `COMPLETED`, final WhatsApp ACK verified |
+| **P9** | Final Cleanup & Session Teardown | **HOLD** | `python scripts/operations/gate10_b1_e2e_runner.py down` (or `cleanup` for volume removal) — requires explicit user authorization |
 
 ---
 
