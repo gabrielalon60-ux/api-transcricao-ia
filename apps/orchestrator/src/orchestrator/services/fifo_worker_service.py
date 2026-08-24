@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
@@ -396,13 +397,59 @@ _NORMALIZED_FIELD_MAP: dict[str, tuple[str, str, str, str]] = {
 }
 
 
+_PT_BR_AMOUNT_RE = re.compile(
+    r"^(?P<sign>[+-])?(?:R\$\s*)?(?P<num>"
+    r"(?:\d{1,3}(?:\.\d{3})+,\d{1,2})"  # 1.234,56 or 1.234.567,89
+    r"|(?:\d+,\d{1,2})"                 # 50,00 or 1,2
+    r"|(?:\d{1,3}(?:\.\d{3})+)"         # 1.234 or 12.345 or 1.234.567
+    r"|(?:\d+\.\d{1,2})"                # 1.2 or 1.23 or 50.00 or 1234.56
+    r"|(?:\d+)"                         # 50 or 1234
+    r")$",
+    re.IGNORECASE,
+)
+
+
 def _to_decimal(value: Any) -> Optional[Decimal]:
-    if value is None:
+    if value is None or isinstance(value, bool):
         return None
     if isinstance(value, Decimal):
         return value
+    if isinstance(value, int):
+        return Decimal(value)
+    if isinstance(value, float):
+        try:
+            return Decimal(str(value))
+        except (InvalidOperation, TypeError, ValueError):
+            return None
+    if not isinstance(value, str):
+        return None
+
+    clean = value.strip()
+    if not clean:
+        return None
+
+    match = _PT_BR_AMOUNT_RE.fullmatch(clean)
+    if not match:
+        return None
+
+    sign = match.group("sign") or ""
+    num_str = match.group("num")
+
+    if "." in num_str and "," in num_str:
+        # PT-BR grouped with comma decimal: 1.234,56 -> 1234.56
+        normalized_str = num_str.replace(".", "").replace(",", ".")
+    elif "," in num_str:
+        # PT-BR comma decimal: 50,00 -> 50.00
+        normalized_str = num_str.replace(",", ".")
+    elif "." in num_str and not re.search(r"\.\d{1,2}$", num_str):
+        # PT-BR grouped integer: 1.234 -> 1234, 1.234.567 -> 1234567
+        normalized_str = num_str.replace(".", "")
+    else:
+        # Canonical dot-decimal (e.g. 50.00, 1.23) or plain integer (50)
+        normalized_str = num_str
+
     try:
-        return Decimal(str(value))
+        return Decimal(f"{sign}{normalized_str}")
     except (InvalidOperation, TypeError, ValueError):
         return None
 
