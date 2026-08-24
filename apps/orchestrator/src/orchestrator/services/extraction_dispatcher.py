@@ -108,8 +108,15 @@ def apply_extraction_success(
 
     doc_type = (extraction_payload.get("document_type") or "unknown").lower()
     item.document_type = doc_type
-    item.raw_extraction = extraction_payload.get("extraction") or {}
-    item.normalized_data = extraction_payload.get("normalization") or {}
+
+    raw = extraction_payload.get("extraction")
+    normalization = extraction_payload.get("normalization")
+    item.raw_extraction = raw if isinstance(raw, dict) else {}
+    item.normalized_data = (
+        normalization
+        if isinstance(normalization, dict) and normalization
+        else item.raw_extraction
+    )
     item.quality_flags = {"flags": extraction_payload.get("quality_flags") or []}
     item.confidence_data = {"score": extraction_payload.get("confidence")}
 
