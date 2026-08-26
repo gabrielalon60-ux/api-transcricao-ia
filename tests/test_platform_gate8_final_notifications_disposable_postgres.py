@@ -27,6 +27,9 @@ from orchestrator.services.final_notification_service import (
     run_final_notification_iteration,
 )
 
+pytestmark = pytest.mark.real_pg15
+
+
 ROOT = Path(__file__).resolve().parents[1]
 URL = os.getenv(
     "GATE8_PLATFORM_DISPOSABLE_DATABASE_URL",

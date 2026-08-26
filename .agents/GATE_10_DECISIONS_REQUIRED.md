@@ -8,7 +8,7 @@ References may identify an approved secret manager item, private document, infra
 
 ## G10-D01 — Production DF schema/adoption
 
-- Business/technical owner: Gabriel
+- Business/technical owner: Authorized Operator
 - Approved private schema reference: PENDING - private DF schema document/owner reference required
 - Actual enterprise table contract approved: NO
 - `financial_records` destination contract approved: NO
@@ -21,21 +21,21 @@ References may identify an approved secret manager item, private document, infra
 
 ## G10-D02 — Real DF identifiers
 
-- Business owner: Gabriel
+- Business owner: Authorized Operator
 - Secure configuration/secret reference (not the values): PENDING - approved secret-store item required
 - Expected count of CPF entries: PENDING
 - Expected count of CNPJ entries: PENDING
 - Normalized digit-only validation approved: YES
 - Placeholder rejection outside development/test approved: YES
-- Change/rotation procedure owner: Gabriel / PENDING formal procedure
+- Change/rotation procedure owner: Authorized Operator / PENDING formal procedure
 
 ## G10-D03 — Staging/production infrastructure
 
-- Infrastructure owner: Gabriel
+- Infrastructure owner: Authorized Operator
 - Dokploy/project inventory reference: PENDING - private infrastructure inventory required
 - Staging topology reference: PENDING
 - Production topology reference: PENDING
-- Domain/DNS owner: Gabriel / PENDING provider reference
+- Domain/DNS owner: Authorized Operator / PENDING provider reference
 - Traefik/certificate-resolver policy reference: PENDING
 - Approved public routes: PENDING - expected only HTTPS edge routes
 - Approved private services/networks: PENDING - DB/internal services must remain private
@@ -44,7 +44,7 @@ References may identify an approved secret manager item, private document, infra
 
 ## G10-D04 — SSH/firewall
 
-- Host/security owner: Gabriel
+- Host/security owner: Authorized Operator
 - Key-only SSH required: YES
 - Root login disabled: YES
 - Password login disabled: YES
@@ -52,11 +52,11 @@ References may identify an approved secret manager item, private document, infra
 - Source allowlist, VPN, or access-proxy policy reference: PENDING
 - Host/cloud firewall policy reference: PENDING
 - Brute-force protection policy: PENDING - fail2ban/cloud equivalent required
-- Emergency-access owner/procedure reference: Gabriel / PENDING documented break-glass procedure
+- Emergency-access owner/procedure reference: Authorized Operator / PENDING documented break-glass procedure
 
 ## G10-D05 — Deployed WUZAPI contract
 
-- WUZAPI owner: Gabriel
+- WUZAPI owner: Authorized Operator
 - Exact version/image digest reference: PENDING - pinned image/digest required
 - Webhook signature header: PENDING - must match deployed WUZAPI capability
 - Signature algorithm/encoding reference: PENDING
@@ -71,18 +71,18 @@ References may identify an approved secret manager item, private document, infra
 
 ## G10-D06 — Secret inventory/rotation
 
-- Security owner: Gabriel
+- Security owner: Authorized Operator
 - Approved secret-store/project reference: PENDING - Bitwarden/1Password/Dokploy/GitHub Secrets reference required
 - Inventory covers every application, database, WUZAPI, SSH, edge, and CI secret: NO / PENDING
 - Separate token per service boundary: YES
 - New production values required: YES
 - Rotation date/window: PENDING
 - Revocation/rollback procedure reference: PENDING
-- Audit owner: Gabriel
+- Audit owner: Authorized Operator
 
 ## G10-D07 — Operational limits
 
-- Product/operations owner: Gabriel
+- Product/operations owner: Authorized Operator
 - Webhook limit and burst: 60/minute sustained, burst 120/minute per public route
 - Per-IP limit: 30/minute sustained, burst 60/minute
 - Per-organization limit: 20 active/in-flight processing items
@@ -104,7 +104,7 @@ Registration is initiated by a WhatsApp user through WUZAPI, so the application 
 
 ## G10-D08 — Staging E2E inventory
 
-- Staging owner: Gabriel
+- Staging owner: Authorized Operator
 - Staging project/environment reference: PENDING
 - Isolated WhatsApp/WUZAPI test identity available: PENDING
 - Staging Platform DB available: PENDING
@@ -120,10 +120,10 @@ Registration is initiated by a WhatsApp user through WUZAPI, so the application 
 
 ## G10-D09 — Release/rollback authority
 
-- Release owner: Gabriel
-- Final go/no-go authority: Gabriel
+- Release owner: Authorized Operator
+- Final go/no-go authority: Authorized Operator
 - Version/tag convention: vMAJOR.MINOR.PATCH, starting with first production candidate after Gate 10 approval
-- Changelog owner: Gabriel
+- Changelog owner: Authorized Operator
 - Immutable image/artifact policy: YES - deploy only pinned immutable image/artifact
 - Deployment approval mechanism: REQUIRED - manual approval before production deploy
 - Maintenance window: PENDING

@@ -19,6 +19,9 @@ from orchestrator.services.fifo_worker_service import (
     PHYSICAL_PARTIAL_INDEX_NAME,
 )
 
+pytestmark = pytest.mark.real_pg15
+
+
 ROOT = Path(__file__).resolve().parents[1]
 ALEMBIC_INI = ROOT / "packages" / "db" / "alembic.ini"
 DISPOSABLE_DB_URL = "postgresql://postgres:postgres@localhost:55432/platform_gate4_test"

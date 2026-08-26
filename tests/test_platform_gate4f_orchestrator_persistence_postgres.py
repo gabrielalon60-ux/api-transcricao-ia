@@ -20,6 +20,9 @@ from orchestrator.services.persistence_service import (
 )
 from orchestrator.db_writer_client import DBWriterClient
 
+pytestmark = pytest.mark.real_pg15
+
+
 ROOT = Path(__file__).resolve().parents[1]
 ALEMBIC_INI = ROOT / "packages" / "db" / "alembic.ini"
 DISPOSABLE_DB_URL = os.getenv("GATE4_DISPOSABLE_DATABASE_URL", "postgresql://postgres:postgres@localhost:55432/platform_gate4_test")

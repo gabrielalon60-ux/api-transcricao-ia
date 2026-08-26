@@ -22,6 +22,9 @@ from transcription.database.migrations.schema_verifier import (
     verify_profile_b,
 )
 
+pytestmark = pytest.mark.real_pg15
+
+
 ROOT = Path(__file__).resolve().parents[1]
 ALEMBIC_INI = ROOT / "apps" / "transcription" / "alembic.ini"
 TEST_URL_ENV = "GATE3_DISPOSABLE_DATABASE_URL"

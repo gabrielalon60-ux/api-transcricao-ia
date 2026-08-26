@@ -21,6 +21,9 @@ from db_writer import main as writer_main
 from db_writer.main import app, get_db, settings
 from orchestrator.services.business_rules_evaluator import resolve_transaction_date
 
+pytestmark = pytest.mark.real_pg15
+
+
 
 ROOT = Path(__file__).resolve().parents[1]
 URL = os.getenv(

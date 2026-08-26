@@ -7,7 +7,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from db.models import Execution, ProcessingItem
@@ -36,8 +36,40 @@ import test_platform_gate8_e2e_disposable_postgres as e2e
 
 engine = e2e.engine
 writer_engine = e2e.writer_engine
-clean = e2e.clean
-writer_client = e2e.writer_client
+
+
+@pytest.fixture
+def clean(engine, writer_engine):
+    with engine.begin() as connection:
+        connection.execute(text("TRUNCATE organizations CASCADE"))
+    with writer_engine.begin() as connection:
+        connection.execute(
+            text(
+                "TRUNCATE financial_records, suppliers, enterprises, "
+                "write_ledger, df_business_records CASCADE"
+            )
+        )
+    yield
+
+
+@pytest.fixture
+def writer_client(writer_engine, clean, monkeypatch):
+    from fastapi.testclient import TestClient
+    from db_writer import main as writer_main
+
+    def override():
+        with Session(writer_engine) as db:
+            yield db
+
+    writer_main.app.dependency_overrides[writer_main.get_db] = override
+    bridge = e2e.LocalWriterClient(TestClient(writer_main.app))
+    monkeypatch.setattr(fifo_worker, "DBWriterClient", lambda: bridge)
+    monkeypatch.setattr(
+        "orchestrator.services.persistence_service.DBWriterClient", lambda: bridge
+    )
+    monkeypatch.setattr(fifo_worker, "_send_gate6_prompt", lambda *_args: True)
+    yield bridge
+    writer_main.app.dependency_overrides.clear()
 
 
 def _item(**overrides: object) -> SimpleNamespace:
@@ -199,6 +231,7 @@ def _start_runtime_notifier(
     return shutdown, thread
 
 
+@pytest.mark.real_pg15
 def test_slow_final_sender_does_not_delay_next_business_claim(
     engine, writer_engine, writer_client, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -220,6 +253,7 @@ def test_slow_final_sender_does_not_delay_next_business_claim(
     thread.join(2)
 
 
+@pytest.mark.real_pg15
 def test_final_sender_timeout_does_not_stop_business_loop(
     engine, writer_engine, writer_client, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -240,6 +274,7 @@ def test_final_sender_timeout_does_not_stop_business_loop(
     thread.join(2)
 
 
+@pytest.mark.real_pg15
 def test_notifier_exception_does_not_stop_business_loop(
     engine, writer_engine, writer_client, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -260,6 +295,7 @@ def test_notifier_exception_does_not_stop_business_loop(
     thread.join(2)
 
 
+@pytest.mark.real_pg15
 def test_notification_backlog_does_not_starve_business_claims(
     engine, writer_engine, writer_client, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -291,6 +327,7 @@ def test_notification_backlog_does_not_starve_business_claims(
     thread.join(2)
 
 
+@pytest.mark.real_pg15
 def test_business_and_notifier_loops_preserve_fifo_sequence(
     engine, writer_engine, writer_client, monkeypatch: pytest.MonkeyPatch,
 ) -> None:

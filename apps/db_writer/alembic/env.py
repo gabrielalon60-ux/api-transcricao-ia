@@ -30,7 +30,7 @@ def run_migrations_offline() -> None:
 def run_migrations_online() -> None:
     url = os.getenv("DB_WRITER_DISPOSABLE_DATABASE_URL", config.get_main_option("sqlalchemy.url"))
     configuration = config.get_section(config.config_ini_section, {})
-    if configuration is not None:
+    if configuration is not None and url is not None:
         configuration["sqlalchemy.url"] = url
 
     connectable = engine_from_config(

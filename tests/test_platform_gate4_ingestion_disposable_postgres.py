@@ -16,6 +16,9 @@ from orchestrator.services.ingestion_service import (
     IngestionOutcome,
 )
 
+pytestmark = pytest.mark.real_pg15
+
+
 ROOT = Path(__file__).resolve().parents[1]
 ALEMBIC_INI = ROOT / "packages" / "db" / "alembic.ini"
 DISPOSABLE_DB_URL = "postgresql://postgres:postgres@localhost:55432/platform_gate4_test"

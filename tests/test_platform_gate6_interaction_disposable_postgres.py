@@ -30,6 +30,9 @@ from orchestrator.services.user_interaction_service import (
 )
 from orchestrator.services.waiting_input_sweeper import expire_waiting_user_input_items
 
+pytestmark = pytest.mark.real_pg15
+
+
 ROOT = Path(__file__).resolve().parents[1]
 ALEMBIC_INI = ROOT / "packages" / "db" / "alembic.ini"
 DISPOSABLE_DB_URL = os.getenv(

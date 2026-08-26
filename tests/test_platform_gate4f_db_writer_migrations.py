@@ -12,6 +12,9 @@ from alembic.config import Config
 
 from db_writer.models import WriteLedger
 
+pytestmark = pytest.mark.real_pg15
+
+
 ROOT = Path(__file__).resolve().parents[1]
 ALEMBIC_INI = ROOT / "apps" / "db_writer" / "alembic.ini"
 DISPOSABLE_DB_URL = os.getenv(

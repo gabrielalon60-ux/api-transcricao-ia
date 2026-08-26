@@ -13,6 +13,9 @@ from sqlalchemy.exc import IntegrityError
 from db_writer.models import WriteLedger, BusinessRecord
 from db_writer.main import app, get_db, settings, write_business_record, WriteRequest, WriteRequestPayload, _is_idempotency_key_race
 
+pytestmark = pytest.mark.real_pg15
+
+
 DISPOSABLE_DB_URL = os.getenv("DB_WRITER_DISPOSABLE_DATABASE_URL", "postgresql://postgres:postgres@localhost:55432/db_writer_gate4_test")
 
 

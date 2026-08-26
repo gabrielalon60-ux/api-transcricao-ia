@@ -41,4 +41,5 @@ exclude = ["scripts/"]
 [tool.pytest.ini_options]
 markers = [
     "real_e2e: Real E2E tests requiring opt-in environment variable G10_B1_REAL_E2E=1",
+    "real_pg15: Tests requiring the disposable local PostgreSQL 15 integration environment",
 ]

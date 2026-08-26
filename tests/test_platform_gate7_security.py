@@ -12,6 +12,9 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import DBAPIError
 
+pytestmark = pytest.mark.real_pg15
+
+
 
 def test_writer_production_requires_verify_full() -> None:
     settings = DBWriterSettings(

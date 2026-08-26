@@ -26,7 +26,13 @@ from orchestrator.services.persistence_service import (
     reconcile_persistence_outcomes,
     recover_stale_persistence_items,
 )
-from tests.test_platform_gate4f_orchestrator_persistence_postgres import MockWriterClient
+from test_platform_gate4f_orchestrator_persistence_postgres import MockWriterClient
+
+pytestmark = pytest.mark.real_pg15
+
+
+
+pytestmark = pytest.mark.real_pg15
 
 
 def dispatch_user_prompt(*args, **kwargs):

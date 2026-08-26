@@ -14,6 +14,10 @@ from orchestrator.services.extraction_dispatcher import (
 from orchestrator.services.final_notification_service import INCOME_OUT_OF_SCOPE_MESSAGE
 import test_platform_gate8_e2e_disposable_postgres as e2e
 
+import pytest
+pytestmark = pytest.mark.real_pg15
+
+
 # Reuse the isolated Platform/Writer lifecycle and real local Writer bridge.
 engine = e2e.engine
 writer_engine = e2e.writer_engine

@@ -19,8 +19,9 @@ class TranscriptionClientError(Exception):
 class TranscriptionClient:
     def __init__(self, base_url: str | None = None, token: str | None = None, client: httpx.AsyncClient | None = None):
         settings = get_settings()
-        self.base_url = (base_url or getattr(settings, "transcription_service_url", "http://localhost:8000")).rstrip("/")
-        self.token = token or getattr(settings, "bot_to_transcription_token", "dev_bot_token_secret_123")
+        resolved_base_url: str = base_url or getattr(settings, "transcription_service_url", "http://localhost:8000") or "http://localhost:8000"
+        self.base_url = resolved_base_url.rstrip("/")
+        self.token = token or getattr(settings, "bot_to_transcription_token", "dev_bot_token_secret_123") or "dev_bot_token_secret_123"
         self.client = client
 
     async def extract(

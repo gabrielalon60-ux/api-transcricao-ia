@@ -27,6 +27,9 @@ from orchestrator.services.persistence_service import (
     transition_validating_to_persisting,
 )
 
+pytestmark = pytest.mark.real_pg15
+
+
 
 ROOT = Path(__file__).resolve().parents[1]
 URL = os.getenv(

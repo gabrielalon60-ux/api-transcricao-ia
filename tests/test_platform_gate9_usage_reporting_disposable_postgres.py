@@ -16,6 +16,9 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.pool import NullPool
 
+pytestmark = pytest.mark.real_pg15
+
+
 ROOT = Path(__file__).resolve().parents[1]
 REPORT_SCRIPT = ROOT / "scripts" / "operations" / "gate9_report.py"
 ADMIN_ENV = "GATE9_TEST_ADMIN_DATABASE_URL"

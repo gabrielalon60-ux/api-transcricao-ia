@@ -9,6 +9,9 @@ from alembic import command
 from alembic.config import Config
 from sqlalchemy import create_engine, inspect, text
 
+pytestmark = pytest.mark.real_pg15
+
+
 
 ROOT = Path(__file__).resolve().parents[1]
 PLATFORM = (

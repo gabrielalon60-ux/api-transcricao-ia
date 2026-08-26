@@ -45,6 +45,9 @@ from orchestrator.services.user_interaction_service import (
 from orchestrator.config import get_settings
 from orchestrator.main import app, get_db
 
+pytestmark = pytest.mark.real_pg15
+
+
 
 ROOT = Path(__file__).resolve().parents[1]
 URL = os.getenv(

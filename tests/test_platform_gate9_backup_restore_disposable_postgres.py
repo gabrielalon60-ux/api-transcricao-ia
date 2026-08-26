@@ -17,6 +17,9 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.pool import NullPool
 
+pytestmark = pytest.mark.real_pg15
+
+
 ROOT = Path(__file__).resolve().parents[1]
 BACKUP_SCRIPT = ROOT / "scripts" / "operations" / "platform_backup.py"
 RESTORE_SCRIPT = ROOT / "scripts" / "operations" / "platform_restore.py"

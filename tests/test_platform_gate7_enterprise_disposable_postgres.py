@@ -34,6 +34,9 @@ from orchestrator.services.user_interaction_service import (
     dispatch_user_prompt,
 )
 
+pytestmark = pytest.mark.real_pg15
+
+
 
 ROOT = Path(__file__).resolve().parents[1]
 URL = os.getenv(

@@ -3,6 +3,10 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
+import pytest
+pytestmark = pytest.mark.real_pg15
+
+
 ROOT = Path(__file__).resolve().parents[1]
 PLATFORM_VERSIONS = ROOT / "packages" / "db" / "alembic" / "versions"
 GATE4_MIGRATION = PLATFORM_VERSIONS / "7a8f9c1b2d3e_gate4_persistent_queue_models.py"

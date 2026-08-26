@@ -60,15 +60,15 @@ Requires successful G10-A and G10-B evidence, closure of every external input be
 
 ### G10-D01 — Release data boundary — CLOSED CONSERVATIVE / BLOCKING G10-C
 
-Gabriel owns the decision. G10-A must not infer an enterprise schema, migration, Writer grant, TLS identity, or rollback boundary. The private schema reference and adoption owner remain deferred inputs. Production Phase B and the release-checklist item `Schema DF aprovado` remain blocked until those protected references are separately supplied and approved.
+The Authorized Operator owns the decision. G10-A must not infer an enterprise schema, migration, Writer grant, TLS identity, or rollback boundary. The private schema reference and adoption owner remain deferred inputs. Production Phase B and the release-checklist item `Schema DF aprovado` remain blocked until those protected references are separately supplied and approved.
 
 ### G10-D02 — Real DF identifiers — CLOSED CONSERVATIVE / BLOCKING G10-B AND G10-C PROVISIONING
 
-Gabriel owns the identifiers. G10-A may implement only a dedicated, validated secret/config reference with digit-only normalization and fail-closed placeholder rejection outside explicit development/test. The actual values, counts, secret-store reference, and formal rotation procedure remain deferred and must never be pasted into Git, test logs, or ordinary chat.
+The Authorized Operator owns the identifiers. G10-A may implement only a dedicated, validated secret/config reference with digit-only normalization and fail-closed placeholder rejection outside explicit development/test. The actual values, counts, secret-store reference, and formal rotation procedure remain deferred and must never be pasted into Git, test logs, or ordinary chat.
 
 ### G10-D03 — Infrastructure inventory — CLOSED CONSERVATIVE / BLOCKING G10-B AND G10-C
 
-Gabriel owns infrastructure. G10-A may prepare an environment-parameterized HTTPS/private-network contract, but it must not invent or access hosts, projects, domains, routes, volumes, backup destinations, or provider settings. The private staging/production inventory remains deferred.
+The Authorized Operator owns infrastructure. G10-A may prepare an environment-parameterized HTTPS/private-network contract, but it must not invent or access hosts, projects, domains, routes, volumes, backup destinations, or provider settings. The private staging/production inventory remains deferred.
 
 ### G10-D04 — SSH and firewall policy — CLOSED CONSERVATIVE / BLOCKING G10-B AND G10-C
 
@@ -80,7 +80,7 @@ G10-A may require a pinned image, authenticated HTTPS webhook route, private/res
 
 ### G10-D06 — Secret inventory and rotation — CLOSED CONSERVATIVE / BLOCKING G10-B AND G10-C
 
-Gabriel owns and audits the secret inventory. Separate tokens per service boundary and new production values are mandatory. G10-A may define names, validation, inventory format, and rotation/revocation procedure only; it must not generate, inspect, print, provision, or rotate any real secret. The approved secret-store reference and complete inventory remain deferred.
+The Authorized Operator owns and audits the secret inventory. Separate tokens per service boundary and new production values are mandatory. G10-A may define names, validation, inventory format, and rotation/revocation procedure only; it must not generate, inspect, print, provision, or rotate any real secret. The approved secret-store reference and complete inventory remain deferred.
 
 ### G10-D07 — Operational limits — CLOSED CONSERVATIVE / STAGING VALIDATION REQUIRED
 
@@ -94,11 +94,11 @@ Provider-call concurrency is two per Transcription process. Every physical provi
 
 ### G10-D08 — Staging E2E inventory — CLOSED CONSERVATIVE / BLOCKING G10-B
 
-Gabriel owns staging. G10-A may prepare deterministic local/disposable evidence and runbooks only. The staging project, isolated identities, databases, provider policy, test-data rules, and every disruptive/security exercise remain unavailable and unauthorized until a separate G10-B approval names the exact resources and actions.
+The Authorized Operator owns staging. G10-A may prepare deterministic local/disposable evidence and runbooks only. The staging project, isolated identities, databases, provider policy, test-data rules, and every disruptive/security exercise remain unavailable and unauthorized until a separate G10-B approval names the exact resources and actions.
 
 ### G10-D09 — Release and rollback authority — CLOSED CONSERVATIVE / BLOCKING G10-C
 
-Gabriel is release owner and final go/no-go authority. G10-A may prepare `vMAJOR.MINOR.PATCH`, changelog, immutable-artifact, manual-approval, health/readiness, and rollback procedures. It must not tag or deploy. Maintenance window, previous-known-good identity, final DB compatibility policy, and confirmed rollback SLA remain deferred G10-C inputs; the target rollback time is at most 15 minutes after the decision.
+The Authorized Operator is release owner and final go/no-go authority. G10-A may prepare `vMAJOR.MINOR.PATCH`, changelog, immutable-artifact, manual-approval, health/readiness, and rollback procedures. It must not tag or deploy. Maintenance window, previous-known-good identity, final DB compatibility policy, and confirmed rollback SLA remain deferred G10-C inputs; the target rollback time is at most 15 minutes after the decision.
 
 ## 5. Proposed repository architecture for G10-A
 

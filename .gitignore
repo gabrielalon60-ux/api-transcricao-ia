@@ -29,7 +29,7 @@ wheels/
 # Virtual environments
 # ==========================================
 
-.venv/
+.venv*
 venv/
 env/
 ENV/
@@ -59,9 +59,11 @@ ENV/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+.uv-cache*
 .coverage
 .coverage.*
 htmlcov/
+scratch/
 
 
 # ==========================================
@@ -79,6 +81,7 @@ htmlcov/
 # ==========================================
 
 *.log
+debug.log
 logs/
 
 
@@ -91,7 +94,7 @@ Thumbs.db
 
 
 # ==========================================
-# Local databases
+# Local databases and dumps
 # ==========================================
 
 *.db
@@ -99,6 +102,7 @@ Thumbs.db
 *.db-wal
 *.sqlite
 *.sqlite3
+*.dump
 
 
 # ==========================================

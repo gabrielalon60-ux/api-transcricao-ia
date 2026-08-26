@@ -52,6 +52,9 @@ from orchestrator.services.persistence_service import (
 )
 from orchestrator.transcription_client import TranscriptionClientError
 
+pytestmark = pytest.mark.real_pg15
+
+
 ROOT = Path(__file__).resolve().parents[1]
 PLATFORM_URL = os.getenv(
     "GATE8_PLATFORM_DISPOSABLE_DATABASE_URL",

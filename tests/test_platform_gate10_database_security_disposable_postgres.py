@@ -7,6 +7,9 @@ import pytest
 from sqlalchemy import create_engine, text
 from sqlalchemy.exc import DBAPIError
 
+pytestmark = pytest.mark.real_pg15
+
+
 DATABASE_URL = os.environ.get("GATE10_DISPOSABLE_DATABASE_URL", "postgresql://postgres:postgres@localhost:55432/platform_gate10_test")
 
 

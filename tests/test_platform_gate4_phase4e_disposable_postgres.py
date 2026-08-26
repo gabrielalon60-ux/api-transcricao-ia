@@ -28,6 +28,9 @@ from orchestrator.services.waiting_input_sweeper import expire_waiting_user_inpu
 from orchestrator.services.fifo_worker_service import claim_next_ready_item
 from orchestrator.fifo_worker import WorkerClaimTracker
 
+pytestmark = pytest.mark.real_pg15
+
+
 
 def dispatch_user_prompt(*args, **kwargs):
     kwargs.setdefault("worker_id", "worker-1")

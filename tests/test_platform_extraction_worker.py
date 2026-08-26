@@ -640,6 +640,7 @@ def pg15_context(disposable_pg15_session_factory):
     }
 
 
+@pytest.mark.real_pg15
 def test_real_pg15_received_claim_and_locking(disposable_pg15_session_factory, pg15_context):
     """11. Real PostgreSQL 15: claim_next_received_item_for_extraction sets EXTRACTING and claim_token."""
     with disposable_pg15_session_factory() as db:
@@ -662,6 +663,7 @@ def test_real_pg15_received_claim_and_locking(disposable_pg15_session_factory, p
         assert second_attempt is None
 
 
+@pytest.mark.real_pg15
 def test_real_pg15_competing_claimers_skip_locked(disposable_pg15_session_factory, pg15_context):
     """12. Real PostgreSQL 15: SKIP LOCKED prevents duplicate claims between two competing sessions."""
     with disposable_pg15_session_factory() as db:
@@ -680,6 +682,7 @@ def test_real_pg15_competing_claimers_skip_locked(disposable_pg15_session_factor
     assert winners[0].claimed_by in ("extraction-worker-pg15-A", "extraction-worker-pg15-B")
 
 
+@pytest.mark.real_pg15
 @pytest.mark.asyncio
 async def test_real_pg15_deterministic_media_failure_terminalizes_and_persists_safe_error(
     disposable_pg15_session_factory, pg15_context
@@ -730,6 +733,7 @@ async def test_real_pg15_deterministic_media_failure_terminalizes_and_persists_s
         assert refreshed.outcome_reason is None
 
 
+@pytest.mark.real_pg15
 def test_real_pg15_stale_lease_recovery(disposable_pg15_session_factory, pg15_context):
     """13. Real PostgreSQL 15: claim_expired_extracting_item_for_recovery reclaims expired leases."""
     past_time = datetime.now(timezone.utc) - timedelta(seconds=120)
@@ -755,6 +759,7 @@ def test_real_pg15_stale_lease_recovery(disposable_pg15_session_factory, pg15_co
         assert recovered.lease_expires_at > datetime.now(timezone.utc)
 
 
+@pytest.mark.real_pg15
 @pytest.mark.asyncio
 async def test_real_pg15_full_worker_iteration_cycle(disposable_pg15_session_factory, pg15_context):
     """14. Real PostgreSQL 15: Full ExtractionWorker run_iteration with real PG15 transactions."""
@@ -792,6 +797,7 @@ async def test_real_pg15_full_worker_iteration_cycle(disposable_pg15_session_fac
         assert refreshed.attempt_count == 0
 
 
+@pytest.mark.real_pg15
 @pytest.mark.asyncio
 async def test_real_pg15_no_transaction_held_during_transcription(disposable_pg15_session_factory, pg15_context):
     """15. Real PostgreSQL 15: Proves db.in_transaction() is False at Transcription extract entry."""

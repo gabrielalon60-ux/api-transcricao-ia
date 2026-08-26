@@ -13,6 +13,8 @@ from db_writer.models import DBWriterBase
 from db_writer.main import app, settings, get_db
 from orchestrator.db_writer_client import DBWriterClient
 
+pytestmark = pytest.mark.real_pg15
+
 DISPOSABLE_DB_URL = os.getenv("DB_WRITER_DISPOSABLE_DATABASE_URL", "postgresql://postgres:postgres@localhost:55432/db_writer_gate4_test")
 
 
