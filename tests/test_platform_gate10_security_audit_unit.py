@@ -86,3 +86,18 @@ def test_worktree_stage_uses_git_scope_and_excludes_ignored_files(tmp_path: Path
     assert (stage / "untracked.txt").is_file()
     assert not (stage / ".env").exists()
     assert not (stage / ".venv").exists()
+
+
+def test_compose_tls_security_validation(tmp_path: Path) -> None:
+    module = _load_audit()
+    valid_compose = ROOT / "deploy" / "compose.release.yml"
+    assert module.validate_compose_tls_security(valid_compose) == []
+
+    bad_compose = tmp_path / "bad_compose.yml"
+    bad_compose.write_text(
+        "services:\n  platform-db:\n    image: postgres\n  orchestrator:\n    volumes: [server.key:/key]\n",
+        encoding="utf-8",
+    )
+    errors = module.validate_compose_tls_security(bad_compose)
+    assert any("ssl=on" in err for err in errors)
+    assert any("server.key" in err for err in errors)

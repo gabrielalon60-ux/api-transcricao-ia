@@ -29,11 +29,12 @@ def _release_env() -> dict[str, str]:
         "WUZAPI_IMAGE": f"registry.invalid/wuzapi@sha256:{digest}",
         "RELEASE_HOST": "staging.example.test",
         "EDGE_NETWORK": "edge-test",
-        "DATABASE_URL": "postgresql://app:secret@platform-db/platform?sslmode=verify-full",
+        "POSTGRES_TLS_DIR": "/tmp/fake-tls",
+        "DATABASE_URL": "postgresql://app:secret@platform-db/platform?sslmode=verify-full&sslrootcert=/run/secrets/postgres_ca.crt",
         "DB_USER": "app",
         "DB_PASSWORD": secret,
         "DB_NAME": "platform",
-        "DF_DATABASE_URL": "postgresql://writer:secret@df-db/df?sslmode=verify-full",
+        "DF_DATABASE_URL": "postgresql://writer:secret@df-db/df?sslmode=verify-full&sslrootcert=/run/secrets/postgres_ca.crt",
         "DF_HOLDING_IDENTIFIERS": "12345678901,12345678000199",
         "GEMINI_MODEL": "gemini-test",
         **{name: secret for name in (
@@ -53,6 +54,11 @@ def test_release_compose_is_private_and_hardened() -> None:
     assert "internal: true" in text
     assert "${RELEASE_IMAGE:?" in text
     assert "${WUZAPI_IMAGE:?" in text
+    assert "ssl=on" in text
+    assert "server.crt" in text
+    assert "server.key" in text
+    assert "/run/secrets/postgres_ca.crt" in text
+    assert "ca.key" not in text
 
 
 def test_dockerfile_uses_immutable_multistage_nonroot_runtime() -> None:
@@ -81,6 +87,24 @@ def test_preflight_accepts_only_complete_protected_contract(tmp_path: Path) -> N
     assert module.validate(values, env_file, ROOT / "deploy" / "compose.release.yml") == []
     values["RELEASE_IMAGE"] = "registry.invalid/app:latest"
     assert any("RELEASE_IMAGE" in error for error in module.validate(values, env_file, ROOT / "deploy" / "compose.release.yml"))
+
+
+def test_postgres_tls_generator_creates_valid_isolated_certificates(tmp_path: Path) -> None:
+    gen_path = ROOT / "scripts" / "operations" / "generate_postgres_tls.py"
+    spec = importlib.util.spec_from_file_location("generate_postgres_tls", gen_path)
+    assert spec is not None and spec.loader is not None
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    runtime_dir = tmp_path / "runtime_tls"
+    ca_private_dir = tmp_path / "ca_private"
+    result = mod.generate_postgres_tls(runtime_dir, ca_private_dir)
+
+    assert result["ca_crt"].is_file()
+    assert result["server_crt"].is_file()
+    assert result["server_key"].is_file()
+    assert result["ca_key"].is_file()
+    assert not (runtime_dir / "ca.key").exists()
 
 
 def test_release_compose_renders_with_synthetic_values() -> None:

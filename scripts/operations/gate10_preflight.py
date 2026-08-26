@@ -10,6 +10,8 @@ import stat
 import sys
 from pathlib import Path
 
+from cryptography import x509
+
 DIGEST_RE = re.compile(r"^[^\s@]+(?:/[^\s@]+)*@sha256:[0-9a-f]{64}$")
 PROTECTED_ENVS = {"staging", "production"}
 REQUIRED = {
@@ -19,6 +21,7 @@ REQUIRED = {
     "WUZAPI_IMAGE",
     "RELEASE_HOST",
     "EDGE_NETWORK",
+    "POSTGRES_TLS_DIR",
     "DATABASE_URL",
     "DB_USER",
     "DB_PASSWORD",
@@ -87,6 +90,30 @@ def validate(values: dict[str, str], env_file: Path, compose_file: Path) -> list
         value = values.get(name, "")
         if "sslmode=verify-full" not in value:
             errors.append(f"{name} must require sslmode=verify-full")
+        if "sslrootcert=" not in value:
+            errors.append(f"{name} must specify sslrootcert")
+    tls_dir_str = values.get("POSTGRES_TLS_DIR", "")
+    if tls_dir_str:
+        tls_dir = Path(tls_dir_str)
+        if tls_dir.is_dir():
+            if not (tls_dir / "ca.crt").is_file():
+                errors.append("POSTGRES_TLS_DIR is missing ca.crt")
+            if not (tls_dir / "server.crt").is_file():
+                errors.append("POSTGRES_TLS_DIR is missing server.crt")
+            if not (tls_dir / "server.key").is_file():
+                errors.append("POSTGRES_TLS_DIR is missing server.key")
+            if (tls_dir / "ca.key").exists():
+                errors.append("ca.key must not reside in runtime POSTGRES_TLS_DIR")
+            if (tls_dir / "server.crt").is_file():
+                try:
+                    cert_data = (tls_dir / "server.crt").read_bytes()
+                    cert = x509.load_pem_x509_certificate(cert_data)
+                    san_ext = cert.extensions.get_extension_for_oid(x509.ExtensionOID.SUBJECT_ALTERNATIVE_NAME)
+                    san_dns_names = san_ext.value.get_values_for_type(x509.DNSName)
+                    if "platform-db" not in san_dns_names:
+                        errors.append("server.crt SAN does not contain DNS:platform-db")
+                except Exception as exc:
+                    errors.append(f"unable to validate server.crt SAN: {exc}")
     identifiers = [part.strip() for part in values.get("DF_HOLDING_IDENTIFIERS", "").split(",")]
     if not identifiers or any(not item.isdigit() or len(item) not in {11, 14} for item in identifiers):
         errors.append("DF_HOLDING_IDENTIFIERS must contain only comma-separated CPF/CNPJ digits")

@@ -14,6 +14,6 @@ Unavailable, nonzero, malformed, stale, or non-immutable scanner evidence fails 
 
 ## Staging-only checks
 
-With G10-B authorization, prove HTTPS/certificate behavior, per-IP edge limits, external inaccessibility of PostgreSQL and Database Writer, internal least privilege, WUZAPI admin isolation and media retention, signed webhook rejection/acceptance, restart/idempotency, bounded temporary-file cleanup, and zero raw canary secret/CPF/CNPJ/DSN/phone/provider-output matches in collected logs.
+With G10-B authorization, prove HTTPS/certificate behavior, PostgreSQL TLS encryption and `sslmode=verify-full` handshake with `sslrootcert`, CA private key isolation from runtime environment, zero exposure of `server.key` to application containers, per-IP edge limits, external inaccessibility of PostgreSQL and Database Writer, internal least privilege, WUZAPI admin isolation and media retention, signed webhook rejection/acceptance, restart/idempotency, bounded temporary-file cleanup, and zero raw canary secret/CPF/CNPJ/DSN/phone/provider-output matches in collected logs.
 
 Evidence must contain no secret value, client data, broad exclusion, or raw vulnerable payload.

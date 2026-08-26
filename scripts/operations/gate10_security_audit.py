@@ -187,6 +187,33 @@ def evaluate(output: Path) -> list[str]:
     return errors
 
 
+def validate_compose_tls_security(compose_path: Path) -> list[str]:
+    errors: list[str] = []
+    if not compose_path.is_file():
+        errors.append("compose file does not exist")
+        return errors
+    text = compose_path.read_text(encoding="utf-8")
+    if "ssl=on" not in text:
+        errors.append("platform-db TLS is not enabled (missing ssl=on)")
+    if "server.crt" not in text or "server.key" not in text:
+        errors.append("platform-db TLS certificates are not mounted")
+    if "ca.key" in text:
+        errors.append("ca.key private material must not be referenced or mounted in compose")
+    lines = text.splitlines()
+    current_service = ""
+    for line in lines:
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if line.startswith("  ") and not line.startswith("    ") and stripped.endswith(":"):
+            current_service = stripped.rstrip(":")
+        elif not line.startswith(" ") and stripped.endswith(":"):
+            current_service = ""
+        if "server.key" in line and current_service != "platform-db":
+            errors.append("server.key private material must not be mounted in non-database services")
+    return errors
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--repository", type=Path, default=Path.cwd())
@@ -197,6 +224,8 @@ def main(argv: list[str] | None = None) -> int:
         if not args.evaluate_only:
             run_scanners(args.repository, args.output_dir)
         errors = evaluate(args.output_dir)
+        compose_errors = validate_compose_tls_security(args.repository / "deploy" / "compose.release.yml")
+        errors.extend(compose_errors)
     except (OSError, UnicodeError, ValueError, KeyError, json.JSONDecodeError, subprocess.SubprocessError, RuntimeError) as exc:
         print(f"SECURITY AUDIT FAILED: {exc}", file=sys.stderr)
         return 2
