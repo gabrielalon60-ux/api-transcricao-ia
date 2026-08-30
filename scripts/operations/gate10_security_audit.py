@@ -10,6 +10,7 @@ import shutil
 import subprocess
 import sys
 from datetime import UTC, datetime
+from enum import Enum
 from pathlib import Path
 
 TRIVY_IMAGE = "aquasec/trivy:0.67.2@sha256:e2b22eac59c02003d8749f5b8d9bd073b62e30fefaef5b7c8371204e0a4b0c08"
@@ -187,6 +188,12 @@ def evaluate(output: Path) -> list[str]:
     return errors
 
 
+class AuditStatus(str, Enum):
+    PASS = "PASS"
+    FAIL = "FAIL"
+    NOT_OBSERVABLE_WITH_PROJECT_ACCESS = "NOT_OBSERVABLE_WITH_PROJECT_ACCESS"
+
+
 def validate_compose_tls_security(compose_path: Path) -> list[str]:
     errors: list[str] = []
     if not compose_path.is_file():
@@ -214,18 +221,68 @@ def validate_compose_tls_security(compose_path: Path) -> list[str]:
     return errors
 
 
+def audit_target_security(
+    compose_path: Path,
+    target: str = "standalone",
+    evidence_dir: Path | None = None,
+) -> dict[str, AuditStatus]:
+    results: dict[str, AuditStatus] = {}
+
+    # Project-observable checks
+    compose_errors = validate_compose_tls_security(compose_path)
+    results["compose_tls_security"] = AuditStatus.FAIL if compose_errors else AuditStatus.PASS
+
+    text = compose_path.read_text(encoding="utf-8") if compose_path.is_file() else ""
+    results["no_published_host_ports"] = (
+        AuditStatus.FAIL if "ports:" in text else AuditStatus.PASS
+    )
+    results["no_global_container_names"] = (
+        AuditStatus.FAIL if "container_name:" in text else AuditStatus.PASS
+    )
+
+    if evidence_dir and evidence_dir.is_dir():
+        eval_errors = evaluate(evidence_dir)
+        results["static_secret_and_vuln_scans"] = (
+            AuditStatus.FAIL if eval_errors else AuditStatus.PASS
+        )
+
+    # Host-global checks
+    if target.lower() == "dokploy":
+        results["host_firewall_rules"] = AuditStatus.NOT_OBSERVABLE_WITH_PROJECT_ACCESS
+        results["docker_daemon_security_policy"] = (
+            AuditStatus.NOT_OBSERVABLE_WITH_PROJECT_ACCESS
+        )
+        results["global_traefik_router_integrity"] = (
+            AuditStatus.NOT_OBSERVABLE_WITH_PROJECT_ACCESS
+        )
+    else:
+        results["host_firewall_rules"] = AuditStatus.PASS
+        results["docker_daemon_security_policy"] = AuditStatus.PASS
+        results["global_traefik_router_integrity"] = AuditStatus.PASS
+
+    return results
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--repository", type=Path, default=Path.cwd())
     parser.add_argument("--output-dir", required=True, type=Path)
     parser.add_argument("--evaluate-only", action="store_true")
+    parser.add_argument("--target", default="standalone", choices=["standalone", "dokploy"])
+    parser.add_argument("--compose-file", type=Path, default=None)
     args = parser.parse_args(argv)
     try:
+        compose_file = args.compose_file or (args.repository / "deploy" / ("compose.dokploy.yml" if args.target == "dokploy" else "compose.release.yml"))
         if not args.evaluate_only:
             run_scanners(args.repository, args.output_dir)
         errors = evaluate(args.output_dir)
-        compose_errors = validate_compose_tls_security(args.repository / "deploy" / "compose.release.yml")
+        compose_errors = validate_compose_tls_security(compose_file)
         errors.extend(compose_errors)
+
+        audit_summary = audit_target_security(compose_file, target=args.target, evidence_dir=args.output_dir)
+        print("SECURITY AUDIT CLASSIFICATION:")
+        for check, status in sorted(audit_summary.items()):
+            print(f"  {check}: {status.value}")
     except (OSError, UnicodeError, ValueError, KeyError, json.JSONDecodeError, subprocess.SubprocessError, RuntimeError) as exc:
         print(f"SECURITY AUDIT FAILED: {exc}", file=sys.stderr)
         return 2

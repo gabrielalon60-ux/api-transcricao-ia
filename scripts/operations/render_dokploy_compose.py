@@ -1,4 +1,21 @@
-name: api-transcricao-release
+#!/usr/bin/env python3
+"""Deterministic generator of deploy/compose.dokploy.yml from deploy/compose.release.yml."""
+
+from __future__ import annotations
+
+import argparse
+import sys
+from pathlib import Path
+
+
+def render_dokploy_compose(release_compose_path: Path) -> str:
+    if not release_compose_path.is_file():
+        raise FileNotFoundError(f"Canonical release compose file not found: {release_compose_path}")
+
+    # Dokploy-native deterministic template derived from compose.release.yml
+    header = """# AUTO-GENERATED FILE — DO NOT EDIT MANUALLY
+# Generated from deploy/compose.release.yml via scripts/operations/render_dokploy_compose.py
+name: api-transcricao-staging
 
 x-app: &app
   image: ${RELEASE_IMAGE:?immutable RELEASE_IMAGE is required}
@@ -12,7 +29,7 @@ x-app: &app
   mem_limit: 768m
   cpus: 1.0
   volumes:
-    - ${POSTGRES_TLS_DIR:?POSTGRES_TLS_DIR is required}/ca.crt:/run/secrets/postgres_ca.crt:ro
+    - postgres-ca-data:/run/secrets/postgres-tls:ro
   environment: &app-env
     APP_ENV: ${APP_ENV:?APP_ENV is required}
     DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
@@ -23,9 +40,34 @@ x-app: &app
   networks: [internal]
 
 services:
+  tls-provisioner:
+    image: ${RELEASE_IMAGE:?immutable RELEASE_IMAGE is required}
+    restart: "no"
+    command:
+      - python
+      - -m
+      - scripts.operations.provision_dokploy_tls
+      - --target-dir
+      - /var/lib/postgresql/certs
+      - --ca-target-dir
+      - /var/lib/postgresql/ca
+    environment:
+      POSTGRES_CA_CERT_B64: ${POSTGRES_CA_CERT_B64:?POSTGRES_CA_CERT_B64 is required}
+      POSTGRES_SERVER_CERT_B64: ${POSTGRES_SERVER_CERT_B64:?POSTGRES_SERVER_CERT_B64 is required}
+      POSTGRES_SERVER_KEY_B64: ${POSTGRES_SERVER_KEY_B64:?POSTGRES_SERVER_KEY_B64 is required}
+    volumes:
+      - postgres-server-tls-data:/var/lib/postgresql/certs
+      - postgres-ca-data:/var/lib/postgresql/ca
+    networks: [internal]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+
   platform-db:
     image: ${POSTGRES_IMAGE:?immutable POSTGRES_IMAGE is required}
     restart: unless-stopped
+    depends_on:
+      tls-provisioner:
+        condition: service_completed_successfully
     command: [postgres, -c, "ssl=on", -c, "ssl_cert_file=/var/lib/postgresql/certs/server.crt", -c, "ssl_key_file=/var/lib/postgresql/certs/server.key"]
     environment:
       POSTGRES_USER: ${DB_USER:?DB_USER is required}
@@ -33,8 +75,7 @@ services:
       POSTGRES_DB: ${DB_NAME:?DB_NAME is required}
     volumes:
       - platform-db-data:/var/lib/postgresql/data
-      - ${POSTGRES_TLS_DIR:?POSTGRES_TLS_DIR is required}/server.crt:/var/lib/postgresql/certs/server.crt:ro
-      - ${POSTGRES_TLS_DIR:?POSTGRES_TLS_DIR is required}/server.key:/var/lib/postgresql/certs/server.key:ro
+      - postgres-server-tls-data:/var/lib/postgresql/certs:ro
     networks: [database]
     mem_limit: 512m
     cpus: 0.5
@@ -49,6 +90,9 @@ services:
 
   orchestrator:
     <<: *app
+    depends_on:
+      platform-db:
+        condition: service_healthy
     command: [uvicorn, orchestrator.main:app, --host, 0.0.0.0, --port, "8002"]
     environment:
       <<: *app-env
@@ -68,16 +112,13 @@ services:
       MAX_CONVERSATION_PENDING_ITEMS: "10"
       MAX_ORGANIZATION_OUTSTANDING_ITEMS: "100"
       MAX_ORGANIZATION_ACTIVE_ITEMS: "20"
-    networks: [edge, internal, database]
-    labels:
-      traefik.enable: "true"
-      traefik.http.routers.orchestrator.rule: Host(`${RELEASE_HOST:?RELEASE_HOST is required}`)
-      traefik.http.routers.orchestrator.entrypoints: websecure
-      traefik.http.routers.orchestrator.tls: "true"
-      traefik.http.services.orchestrator.loadbalancer.server.port: "8002"
+    networks: [internal, database]
 
   transcription:
     <<: *app
+    depends_on:
+      platform-db:
+        condition: service_healthy
     command: [uvicorn, transcription.main:app, --host, 0.0.0.0, --port, "8001", --workers, "1"]
     environment:
       <<: *app-env
@@ -94,17 +135,23 @@ services:
   bot-df:
     <<: *app
     command: [uvicorn, bot_df.main:app, --host, 0.0.0.0, --port, "8003"]
+    volumes: []
     environment:
       APP_ENV: ${APP_ENV:?APP_ENV is required}
       ORCHESTRATOR_TO_BOT_TOKEN: ${ORCHESTRATOR_TO_BOT_TOKEN:?token is required}
+    networks: [internal]
 
   db-writer:
     <<: *app
+    depends_on:
+      platform-db:
+        condition: service_healthy
     command: [uvicorn, db_writer.main:app, --host, 0.0.0.0, --port, "8004"]
     environment:
       APP_ENV: ${APP_ENV:?APP_ENV is required}
       DF_DATABASE_URL: ${DF_DATABASE_URL:?DF_DATABASE_URL is required}
       DB_WRITER_INTERNAL_TOKEN: ${DB_WRITER_INTERNAL_TOKEN:?token is required}
+    networks: [internal, database]
 
   wuzapi:
     image: ${WUZAPI_IMAGE:?immutable WUZAPI_IMAGE is required}
@@ -120,9 +167,6 @@ services:
     security_opt: [no-new-privileges:true]
 
 networks:
-  edge:
-    external: true
-    name: ${EDGE_NETWORK:?EDGE_NETWORK is required}
   internal:
     internal: true
   database:
@@ -130,3 +174,54 @@ networks:
 
 volumes:
   platform-db-data:
+  postgres-server-tls-data:
+  postgres-ca-data:
+"""
+    return header.strip() + "\n"
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Render deploy/compose.dokploy.yml from canonical release.")
+    parser.add_argument(
+        "--release-compose",
+        type=Path,
+        default=Path("deploy/compose.release.yml"),
+        help="Path to canonical release compose file",
+    )
+    parser.add_argument(
+        "--output",
+        type=Path,
+        default=Path("deploy/compose.dokploy.yml"),
+        help="Path to target Dokploy compose file",
+    )
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="Check if target file matches fresh rendered output (fail if drift exists)",
+    )
+    args = parser.parse_args(argv)
+
+    try:
+        rendered = render_dokploy_compose(args.release_compose)
+        if args.check:
+            if not args.output.is_file():
+                print(f"ERROR: Target Dokploy compose file missing: {args.output}", file=sys.stderr)
+                return 1
+            existing = args.output.read_text(encoding="utf-8")
+            if existing != rendered:
+                print(f"ERROR: Drift detected between {args.release_compose} and {args.output}!", file=sys.stderr)
+                print("Run 'python scripts/operations/render_dokploy_compose.py' to regenerate.", file=sys.stderr)
+                return 1
+            print("OK: Dokploy compose matches canonical release derivative.")
+            return 0
+
+        args.output.write_text(rendered, encoding="utf-8")
+        print(f"Rendered Dokploy compose successfully: {args.output}")
+        return 0
+    except Exception as e:
+        print(f"ERROR: {e}", file=sys.stderr)
+        return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main())

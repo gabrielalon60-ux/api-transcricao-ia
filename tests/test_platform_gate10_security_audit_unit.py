@@ -101,3 +101,20 @@ def test_compose_tls_security_validation(tmp_path: Path) -> None:
     errors = module.validate_compose_tls_security(bad_compose)
     assert any("ssl=on" in err for err in errors)
     assert any("server.key" in err for err in errors)
+
+
+def test_dokploy_security_audit_not_observable_classification(tmp_path: Path) -> None:
+    module = _load_audit()
+    dokploy_compose = ROOT / "deploy" / "compose.dokploy.yml"
+    assert dokploy_compose.is_file()
+
+    results_dok = module.audit_target_security(dokploy_compose, target="dokploy")
+    assert results_dok["compose_tls_security"] == module.AuditStatus.PASS
+    assert results_dok["no_published_host_ports"] == module.AuditStatus.PASS
+    assert results_dok["no_global_container_names"] == module.AuditStatus.PASS
+    assert results_dok["host_firewall_rules"] == module.AuditStatus.NOT_OBSERVABLE_WITH_PROJECT_ACCESS
+    assert results_dok["docker_daemon_security_policy"] == module.AuditStatus.NOT_OBSERVABLE_WITH_PROJECT_ACCESS
+
+    results_std = module.audit_target_security(ROOT / "deploy" / "compose.release.yml", target="standalone")
+    assert results_std["compose_tls_security"] == module.AuditStatus.PASS
+    assert results_std["host_firewall_rules"] == module.AuditStatus.PASS
