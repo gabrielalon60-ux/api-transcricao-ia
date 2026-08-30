@@ -21,7 +21,7 @@ x-app: &app
   image: ${RELEASE_IMAGE:?immutable RELEASE_IMAGE is required}
   restart: unless-stopped
   read_only: true
-  tmpfs: [/tmp:rw,noexec,nosuid,nodev,size=64m]
+  tmpfs: [/tmp:size=64m]
   cap_drop: [ALL]
   security_opt: [no-new-privileges:true]
   user: "10001:10001"
@@ -162,7 +162,7 @@ services:
       WUZAPI_ADMIN_TOKEN: ${WUZAPI_ADMIN_TOKEN:?admin token is required}
     networks: [internal]
     read_only: true
-    tmpfs: [/tmp:rw,noexec,nosuid,nodev,size=64m]
+    tmpfs: [/tmp:size=64m]
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
 

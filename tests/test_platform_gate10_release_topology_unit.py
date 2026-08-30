@@ -49,6 +49,7 @@ def test_release_compose_is_private_and_hardened() -> None:
     text = (ROOT / "deploy" / "compose.release.yml").read_text(encoding="utf-8")
     assert "ports:" not in text
     assert "read_only: true" in text
+    assert "tmpfs: [/tmp:size=64m]" in text
     assert "no-new-privileges:true" in text
     assert "cap_drop: [ALL]" in text
     assert "internal: true" in text
@@ -111,6 +112,7 @@ def test_dokploy_compose_is_private_hardened_and_uses_named_volumes() -> None:
     text = (ROOT / "deploy" / "compose.dokploy.yml").read_text(encoding="utf-8")
     assert "ports:" not in text
     assert "read_only: true" in text
+    assert "tmpfs: [/tmp:size=64m]" in text
     assert "no-new-privileges:true" in text
     assert "cap_drop: [ALL]" in text
     assert "internal: true" in text
