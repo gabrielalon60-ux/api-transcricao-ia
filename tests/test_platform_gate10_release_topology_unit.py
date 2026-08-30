@@ -37,6 +37,9 @@ def _release_env() -> dict[str, str]:
         "DF_DATABASE_URL": "postgresql://writer:secret@df-db/df?sslmode=verify-full&sslrootcert=/run/secrets/postgres_ca.crt",
         "DF_HOLDING_IDENTIFIERS": "12345678901,12345678000199",
         "GEMINI_MODEL": "gemini-test",
+        "POSTGRES_CA_CERT_B64": "dGVzdF9jYV9zZWNyZXRfbG9uZ19lbm91Z2hfMTIzNDU2Nzg=",
+        "POSTGRES_SERVER_CERT_B64": "dGVzdF9zcnZfY3J0X3NlY3JldF9sb25nX2Vub3VnaF8xMjM0NTY3OA==",
+        "POSTGRES_SERVER_KEY_B64": "dGVzdF9zcnZfa2V5X3NlY3JldF9sb25nX2Vub3VnaF8xMjM0NTY3OA==",
         **{name: secret for name in (
             "API_KEY_HASH_SECRET", "WUZAPI_WEBHOOK_SECRET", "REGISTRATION_SECRET_PEPPER",
             "LOG_PII_HASH_KEY", "ORCHESTRATOR_TO_BOT_TOKEN", "BOT_TO_TRANSCRIPTION_TOKEN",
@@ -122,6 +125,12 @@ def test_dokploy_compose_is_private_hardened_and_uses_named_volumes() -> None:
     assert "ca.key" not in text
     assert "tls-provisioner:" in text
     assert "platform-db:" in text
+    assert 'user: "0:0"' in text
+    assert "network_mode: \"none\"" in text
+    assert "security.tls_provisioner" in text
+    assert "--server-key-uid" in text
+    assert "--server-key-gid" in text
+    assert "--overwrite" in text
 
 
 def test_dokploy_tls_provisioner_unpacks_and_validates(tmp_path: Path) -> None:

@@ -28,14 +28,20 @@ services:
   tls-provisioner:
     image: ${RELEASE_IMAGE:?immutable RELEASE_IMAGE is required}
     restart: "no"
+    user: "0:0"
     command:
       - python
       - -m
-      - scripts.operations.provision_dokploy_tls
+      - security.tls_provisioner
       - --target-dir
       - /var/lib/postgresql/certs
       - --ca-target-dir
       - /var/lib/postgresql/ca
+      - --server-key-uid
+      - "70"
+      - --server-key-gid
+      - "70"
+      - --overwrite
     environment:
       POSTGRES_CA_CERT_B64: ${POSTGRES_CA_CERT_B64:?POSTGRES_CA_CERT_B64 is required}
       POSTGRES_SERVER_CERT_B64: ${POSTGRES_SERVER_CERT_B64:?POSTGRES_SERVER_CERT_B64 is required}
@@ -43,9 +49,11 @@ services:
     volumes:
       - postgres-server-tls-data:/var/lib/postgresql/certs
       - postgres-ca-data:/var/lib/postgresql/ca
-    networks: [internal]
+    network_mode: "none"
+    read_only: true
     security_opt: [no-new-privileges:true]
     cap_drop: [ALL]
+    cap_add: [CHOWN]
 
   platform-db:
     image: ${POSTGRES_IMAGE:?immutable POSTGRES_IMAGE is required}
