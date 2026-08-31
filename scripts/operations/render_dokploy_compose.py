@@ -96,11 +96,58 @@ services:
     cap_drop: [ALL]
     cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, SETGID, SETUID]
 
+  platform-migrator:
+    image: ${RELEASE_IMAGE:?immutable RELEASE_IMAGE is required}
+    restart: "no"
+    command: [alembic, -c, packages/db/alembic.ini, upgrade, head]
+    environment:
+      APP_ENV: ${APP_ENV:?APP_ENV is required}
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+    depends_on:
+      platform-db:
+        condition: service_healthy
+    volumes:
+      - postgres-ca-data:/run/secrets/postgres-tls:ro
+    networks: [database]
+    read_only: true
+    tmpfs: [/tmp:size=64m]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    user: "10001:10001"
+    pids_limit: 256
+    mem_limit: 512m
+    cpus: 0.5
+
+  transcription-migrator:
+    image: ${RELEASE_IMAGE:?immutable RELEASE_IMAGE is required}
+    restart: "no"
+    command: [alembic, -c, apps/transcription/alembic.ini, upgrade, head]
+    environment:
+      APP_ENV: ${APP_ENV:?APP_ENV is required}
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+      TRANSCRIPTION_DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+    depends_on:
+      platform-db:
+        condition: service_healthy
+    volumes:
+      - postgres-ca-data:/run/secrets/postgres-tls:ro
+    networks: [database]
+    read_only: true
+    tmpfs: [/tmp:size=64m]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    user: "10001:10001"
+    pids_limit: 256
+    mem_limit: 512m
+    cpus: 0.5
+
   orchestrator:
     <<: *app
     depends_on:
       platform-db:
         condition: service_healthy
+      platform-migrator:
+        condition: service_completed_successfully
     command: [uvicorn, orchestrator.main:app, --host, 0.0.0.0, --port, "8002"]
     environment:
       <<: *app-env
@@ -127,6 +174,10 @@ services:
     depends_on:
       platform-db:
         condition: service_healthy
+      platform-migrator:
+        condition: service_completed_successfully
+      transcription-migrator:
+        condition: service_completed_successfully
     command: [uvicorn, transcription.main:app, --host, 0.0.0.0, --port, "8001", --workers, "1"]
     environment:
       <<: *app-env
@@ -154,6 +205,8 @@ services:
     depends_on:
       platform-db:
         condition: service_healthy
+      platform-migrator:
+        condition: service_completed_successfully
     command: [uvicorn, db_writer.main:app, --host, 0.0.0.0, --port, "8004"]
     environment:
       APP_ENV: ${APP_ENV:?APP_ENV is required}
@@ -168,6 +221,8 @@ services:
     cpus: 0.5
     environment:
       WUZAPI_ADMIN_TOKEN: ${WUZAPI_ADMIN_TOKEN:?admin token is required}
+      WUZAPI_GLOBAL_ENCRYPTION_KEY: ${WUZAPI_GLOBAL_ENCRYPTION_KEY:?WUZAPI_GLOBAL_ENCRYPTION_KEY is required}
+      WUZAPI_GLOBAL_HMAC_KEY: ${WUZAPI_WEBHOOK_SECRET:?WUZAPI_WEBHOOK_SECRET is required}
     networks: [internal, egress]
     volumes:
       - wuzapi-data:/app/dbdata

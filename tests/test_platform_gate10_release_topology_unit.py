@@ -44,6 +44,7 @@ def _release_env() -> dict[str, str]:
             "API_KEY_HASH_SECRET", "WUZAPI_WEBHOOK_SECRET", "REGISTRATION_SECRET_PEPPER",
             "LOG_PII_HASH_KEY", "ORCHESTRATOR_TO_BOT_TOKEN", "BOT_TO_TRANSCRIPTION_TOKEN",
             "DB_WRITER_INTERNAL_TOKEN", "GEMINI_API_KEY", "WUZAPI_ADMIN_TOKEN", "WUZAPI_TOKEN",
+            "WUZAPI_GLOBAL_ENCRYPTION_KEY",
         )},
     }
 
@@ -65,6 +66,15 @@ def test_release_compose_is_private_and_hardened() -> None:
     assert "wuzapi-data:/app/dbdata" in text
     assert "wuzapi-data:" in text
     assert "ca.key" not in text
+    assert "platform-migrator:" in text
+    assert "transcription-migrator:" in text
+    assert "packages/db/alembic.ini" in text
+    assert "apps/transcription/alembic.ini" in text
+    assert "apps/db_writer/alembic.ini" not in text
+    assert "service_completed_successfully" in text
+    assert "WUZAPI_GLOBAL_ENCRYPTION_KEY" in text
+    assert "WUZAPI_GLOBAL_HMAC_KEY: ${WUZAPI_WEBHOOK_SECRET:?WUZAPI_WEBHOOK_SECRET is required}" in text
+    assert "${WUZAPI_GLOBAL_HMAC_KEY" not in text
 
 
 def test_dockerfile_uses_immutable_multistage_nonroot_runtime() -> None:
@@ -189,12 +199,38 @@ def test_dokploy_compose_is_private_hardened_and_uses_named_volumes() -> None:
     assert "ca.key" not in text
     assert "tls-provisioner:" in text
     assert "platform-db:" in text
+    assert "platform-migrator:" in text
+    assert "transcription-migrator:" in text
+    assert "packages/db/alembic.ini" in text
+    assert "apps/transcription/alembic.ini" in text
+    assert "apps/db_writer/alembic.ini" not in text
+    assert "service_completed_successfully" in text
+    assert "WUZAPI_GLOBAL_ENCRYPTION_KEY" in text
+    assert "WUZAPI_GLOBAL_HMAC_KEY: ${WUZAPI_WEBHOOK_SECRET:?WUZAPI_WEBHOOK_SECRET is required}" in text
+    assert "${WUZAPI_GLOBAL_HMAC_KEY" not in text
     assert 'user: "0:0"' in text
     assert "network_mode: \"none\"" in text
     assert "security.tls_provisioner" in text
     assert "--server-key-uid" in text
     assert "--server-key-gid" in text
     assert "--overwrite" in text
+
+
+def test_wuzapi_hmac_single_source_and_env_contract_count() -> None:
+    module = _load_preflight()
+    assert len(module.DOKPLOY_REQUIRED) == 25
+    assert len(module.STANDALONE_REQUIRED) == 25
+    assert "WUZAPI_GLOBAL_ENCRYPTION_KEY" in module.DOKPLOY_REQUIRED
+    assert "WUZAPI_WEBHOOK_SECRET" in module.DOKPLOY_REQUIRED
+    assert "WUZAPI_GLOBAL_HMAC_KEY" not in module.DOKPLOY_REQUIRED
+    assert "WUZAPI_GLOBAL_HMAC_KEY" not in module.STANDALONE_REQUIRED
+
+    rel_text = (ROOT / "deploy" / "compose.release.yml").read_text(encoding="utf-8")
+    dok_text = (ROOT / "deploy" / "compose.dokploy.yml").read_text(encoding="utf-8")
+    for text in (rel_text, dok_text):
+        assert "WUZAPI_GLOBAL_HMAC_KEY: ${WUZAPI_WEBHOOK_SECRET:?WUZAPI_WEBHOOK_SECRET is required}" in text
+        assert "${WUZAPI_GLOBAL_HMAC_KEY" not in text
+        assert "WUZAPI_GLOBAL_ENCRYPTION_KEY: ${WUZAPI_GLOBAL_ENCRYPTION_KEY:?WUZAPI_GLOBAL_ENCRYPTION_KEY is required}" in text
 
 
 def test_dokploy_tls_provisioner_unpacks_and_validates(tmp_path: Path) -> None:
