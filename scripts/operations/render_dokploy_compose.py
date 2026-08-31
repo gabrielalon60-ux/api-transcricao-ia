@@ -138,7 +138,7 @@ services:
       MAX_CONCURRENT_VALIDATIONS: "4"
       MAX_PROVIDER_CONCURRENT_CALLS: "2"
       PROVIDER_CAPACITY_ACQUIRE_TIMEOUT_SECONDS: "2"
-    networks: [internal, database]
+    networks: [internal, database, egress]
 
   bot-df:
     <<: *app
@@ -168,7 +168,7 @@ services:
     cpus: 0.5
     environment:
       WUZAPI_ADMIN_TOKEN: ${WUZAPI_ADMIN_TOKEN:?admin token is required}
-    networks: [internal]
+    networks: [internal, egress]
     volumes:
       - wuzapi-data:/app/dbdata
     read_only: true
@@ -181,6 +181,8 @@ networks:
     internal: true
   database:
     internal: true
+  egress:
+    driver: bridge
 
 volumes:
   platform-db-data:
