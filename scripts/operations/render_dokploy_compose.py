@@ -169,6 +169,8 @@ services:
     environment:
       WUZAPI_ADMIN_TOKEN: ${WUZAPI_ADMIN_TOKEN:?admin token is required}
     networks: [internal]
+    volumes:
+      - wuzapi-data:/app/dbdata
     read_only: true
     tmpfs: [/tmp:size=64m]
     cap_drop: [ALL]
@@ -184,6 +186,7 @@ volumes:
   platform-db-data:
   postgres-server-tls-data:
   postgres-ca-data:
+  wuzapi-data:
 """
     return header.strip() + "\n"
 

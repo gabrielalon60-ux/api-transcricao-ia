@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import re
 import stat
@@ -178,9 +179,22 @@ def validate(
             if (tls_volume_dir / "ca.key").exists():
                 errors.append("ca.key must not reside in runtime TLS volume")
 
-    identifiers = [part.strip() for part in values.get("DF_HOLDING_IDENTIFIERS", "").split(",")]
-    if not identifiers or any(not item.isdigit() or len(item) not in {11, 14} for item in identifiers):
-        errors.append("DF_HOLDING_IDENTIFIERS must contain only comma-separated CPF/CNPJ digits")
+    raw_identifiers = values.get("DF_HOLDING_IDENTIFIERS", "").strip()
+    identifiers: list[str] = []
+    if not raw_identifiers:
+        errors.append("DF_HOLDING_IDENTIFIERS must be a non-empty JSON array of strings")
+    else:
+        try:
+            parsed = json.loads(raw_identifiers)
+            if not isinstance(parsed, list) or len(parsed) == 0 or not all(isinstance(item, str) for item in parsed):
+                errors.append("DF_HOLDING_IDENTIFIERS must be a non-empty JSON array of strings")
+            else:
+                identifiers = [item.strip() for item in parsed]
+        except Exception:
+            errors.append("DF_HOLDING_IDENTIFIERS must be a non-empty JSON array of strings")
+
+    if identifiers and any(not item.isdigit() or len(item) not in {11, 14} or len(set(item)) == 1 for item in identifiers):
+        errors.append("DF_HOLDING_IDENTIFIERS must contain only valid CPF/CNPJ digits")
     if not compose_file.is_file():
         errors.append("release compose file does not exist")
     if os.name != "nt":

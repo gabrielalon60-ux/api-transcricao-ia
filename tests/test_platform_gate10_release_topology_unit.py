@@ -35,7 +35,7 @@ def _release_env() -> dict[str, str]:
         "DB_PASSWORD": secret,
         "DB_NAME": "platform",
         "DF_DATABASE_URL": "postgresql://writer:secret@df-db/df?sslmode=verify-full&sslrootcert=/run/secrets/postgres_ca.crt",
-        "DF_HOLDING_IDENTIFIERS": "12345678901,12345678000199",
+        "DF_HOLDING_IDENTIFIERS": '["12345678901","12345678000199"]',
         "GEMINI_MODEL": "gemini-test",
         "POSTGRES_CA_CERT_B64": "dGVzdF9jYV9zZWNyZXRfbG9uZ19lbm91Z2hfMTIzNDU2Nzg=",
         "POSTGRES_SERVER_CERT_B64": "dGVzdF9zcnZfY3J0X3NlY3JldF9sb25nX2Vub3VnaF8xMjM0NTY3OA==",
@@ -62,6 +62,8 @@ def test_release_compose_is_private_and_hardened() -> None:
     assert "server.crt" in text
     assert "server.key" in text
     assert "/run/secrets/postgres_ca.crt" in text
+    assert "wuzapi-data:/app/dbdata" in text
+    assert "wuzapi-data:" in text
     assert "ca.key" not in text
 
 
@@ -93,6 +95,66 @@ def test_preflight_accepts_only_complete_protected_contract(tmp_path: Path) -> N
     assert any("RELEASE_IMAGE" in error for error in module.validate(values, env_file, ROOT / "deploy" / "compose.release.yml"))
 
 
+def test_preflight_df_holding_identifiers_format_contract(tmp_path: Path) -> None:
+    module = _load_preflight()
+    env_file = tmp_path / "release.env"
+    compose_path = ROOT / "deploy" / "compose.release.yml"
+
+    # 1. JSON single-item array -> PASS
+    values = _release_env()
+    values["DF_HOLDING_IDENTIFIERS"] = '["12345678000100"]'
+    env_file.write_text("".join(f"{k}={v}\n" for k, v in values.items()), encoding="utf-8")
+    assert module.validate(values, env_file, compose_path) == []
+
+    # 2. JSON multi-item array -> PASS
+    values = _release_env()
+    values["DF_HOLDING_IDENTIFIERS"] = '["12345678000100","98765432000100"]'
+    env_file.write_text("".join(f"{k}={v}\n" for k, v in values.items()), encoding="utf-8")
+    assert module.validate(values, env_file, compose_path) == []
+
+    # 3. Plain scalar -> FAIL
+    values = _release_env()
+    values["DF_HOLDING_IDENTIFIERS"] = "12345678000100"
+    env_file.write_text("".join(f"{k}={v}\n" for k, v in values.items()), encoding="utf-8")
+    assert any("DF_HOLDING_IDENTIFIERS" in err for err in module.validate(values, env_file, compose_path))
+
+    # 4. Comma-separated scalar -> FAIL
+    values = _release_env()
+    values["DF_HOLDING_IDENTIFIERS"] = "12345678000100,98765432000100"
+    env_file.write_text("".join(f"{k}={v}\n" for k, v in values.items()), encoding="utf-8")
+    assert any("DF_HOLDING_IDENTIFIERS" in err for err in module.validate(values, env_file, compose_path))
+
+    # 5. Empty JSON array -> FAIL
+    values = _release_env()
+    values["DF_HOLDING_IDENTIFIERS"] = "[]"
+    env_file.write_text("".join(f"{k}={v}\n" for k, v in values.items()), encoding="utf-8")
+    assert any("DF_HOLDING_IDENTIFIERS" in err for err in module.validate(values, env_file, compose_path))
+
+    # 6. JSON object -> FAIL
+    values = _release_env()
+    values["DF_HOLDING_IDENTIFIERS"] = '{"id": "12345678000100"}'
+    env_file.write_text("".join(f"{k}={v}\n" for k, v in values.items()), encoding="utf-8")
+    assert any("DF_HOLDING_IDENTIFIERS" in err for err in module.validate(values, env_file, compose_path))
+
+    # 7. JSON number -> FAIL
+    values = _release_env()
+    values["DF_HOLDING_IDENTIFIERS"] = "12345678000100"
+    env_file.write_text("".join(f"{k}={v}\n" for k, v in values.items()), encoding="utf-8")
+    assert any("DF_HOLDING_IDENTIFIERS" in err for err in module.validate(values, env_file, compose_path))
+
+    # 8. Array with non-string element -> FAIL
+    values = _release_env()
+    values["DF_HOLDING_IDENTIFIERS"] = "[12345678000100]"
+    env_file.write_text("".join(f"{k}={v}\n" for k, v in values.items()), encoding="utf-8")
+    assert any("DF_HOLDING_IDENTIFIERS" in err for err in module.validate(values, env_file, compose_path))
+
+    # 9. Malformed JSON -> FAIL
+    values = _release_env()
+    values["DF_HOLDING_IDENTIFIERS"] = '["12345678000100"'
+    env_file.write_text("".join(f"{k}={v}\n" for k, v in values.items()), encoding="utf-8")
+    assert any("DF_HOLDING_IDENTIFIERS" in err for err in module.validate(values, env_file, compose_path))
+
+
 def test_postgres_tls_generator_creates_valid_isolated_certificates(tmp_path: Path) -> None:
     gen_path = ROOT / "scripts" / "operations" / "generate_postgres_tls.py"
     spec = importlib.util.spec_from_file_location("generate_postgres_tls", gen_path)
@@ -122,6 +184,8 @@ def test_dokploy_compose_is_private_hardened_and_uses_named_volumes() -> None:
     assert "ssl=on" in text
     assert "postgres-server-tls-data" in text
     assert "postgres-ca-data" in text
+    assert "wuzapi-data:/app/dbdata" in text
+    assert "wuzapi-data:" in text
     assert "ca.key" not in text
     assert "tls-provisioner:" in text
     assert "platform-db:" in text
