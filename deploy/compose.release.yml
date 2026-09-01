@@ -208,6 +208,7 @@ services:
       WUZAPI_TOKEN: ${WUZAPI_TOKEN:?WUZAPI_TOKEN is required}
       WUZAPI_GLOBAL_ENCRYPTION_KEY: ${WUZAPI_GLOBAL_ENCRYPTION_KEY:?WUZAPI_GLOBAL_ENCRYPTION_KEY is required}
       WUZAPI_GLOBAL_HMAC_KEY: ${WUZAPI_WEBHOOK_SECRET:?WUZAPI_WEBHOOK_SECRET is required}
+      WEBHOOK_FORMAT: json
     networks: [internal, egress]
     volumes:
       - wuzapi-data:/app/dbdata

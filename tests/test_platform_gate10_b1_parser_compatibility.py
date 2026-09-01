@@ -1778,3 +1778,61 @@ def test_extract_file_info_accepts_pinned_native_exported_field_names():
     assert ref["media_key"] == "media_key_b64"
     assert ref["direct_path"] == "/v/t62.7118-24/img.enc"
     assert ref["url"] == "https://mmg.whatsapp.net/d/f/img.enc"
+
+
+def test_wuzapi_json_webhook_format_raw_body_hmac_compatibility(monkeypatch, test_db_session):
+    """
+    Regression test for deployed WUZAPI WEBHOOK_FORMAT=json HMAC contract.
+
+    Proves:
+    1. WUZAPI configured with WEBHOOK_FORMAT=json serializes payload to raw JSON bytes.
+    2. x-hmac-signature is computed over exact raw request body bytes using HMAC-SHA256.
+    3. Orchestrator raw-body verification succeeds with 200 (not 401).
+    4. Tampered body or incorrect secret fails-closed with 401.
+    """
+    secret = "wuzapi_webhook_secret_32bytes_min_len"
+    settings = get_settings()
+    monkeypatch.setattr(settings, "wuzapi_webhook_secret", secret)
+
+    payload = {
+        "event": "Message",
+        "instance": "inst-json-contract-test",
+        "data": {
+            "id": "msg-json-contract-1",
+            "sender": "5511988887777@s.whatsapp.net",
+            "message": {"conversation": "Valid JSON HMAC test"},
+        },
+    }
+
+    # WUZAPI in WEBHOOK_FORMAT=json sends raw jsonBody
+    raw_body = json.dumps(payload).encode("utf-8")
+    valid_sig = hmac.new(secret.encode("utf-8"), raw_body, hashlib.sha256).hexdigest()
+
+    with TestClient(app) as client:
+        # Success case: correct raw body + valid HMAC-SHA256 signature -> 200 OK
+        resp = client.post(
+            "/webhook",
+            content=raw_body,
+            headers={"Content-Type": "application/json", "x-hmac-signature": valid_sig},
+        )
+        assert resp.status_code == 200
+        assert resp.json().get("detail") == "instance_not_found"
+
+        # Tampered body bytes -> 401
+        tampered_body = raw_body + b" "
+        resp_tampered = client.post(
+            "/webhook",
+            content=tampered_body,
+            headers={"Content-Type": "application/json", "x-hmac-signature": valid_sig},
+        )
+        assert resp_tampered.status_code == 401
+        assert resp_tampered.json().get("detail") == "Invalid webhook signature"
+
+        # Invalid secret/sig -> 401
+        resp_invalid_sig = client.post(
+            "/webhook",
+            content=raw_body,
+            headers={"Content-Type": "application/json", "x-hmac-signature": "bad" * 16},
+        )
+        assert resp_invalid_sig.status_code == 401
+        assert resp_invalid_sig.json().get("detail") == "Invalid webhook signature"
