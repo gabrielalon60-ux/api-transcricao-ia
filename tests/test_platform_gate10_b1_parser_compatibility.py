@@ -12,6 +12,7 @@ Covers:
 import hmac
 import hashlib
 import json
+import urllib.parse
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -1780,50 +1781,81 @@ def test_extract_file_info_accepts_pinned_native_exported_field_names():
     assert ref["url"] == "https://mmg.whatsapp.net/d/f/img.enc"
 
 
-def test_wuzapi_json_webhook_format_raw_body_hmac_compatibility(monkeypatch, test_db_session):
+def test_wuzapi_real_form_webhook_raw_body_hmac_and_parser_compatibility(monkeypatch, test_db_session):
     """
-    Regression test for deployed WUZAPI WEBHOOK_FORMAT=json HMAC contract.
+    Regression test for deployed WUZAPI WEBHOOK_FORMAT=form HMAC and parser contract.
 
     Proves:
-    1. WUZAPI configured with WEBHOOK_FORMAT=json serializes payload to raw JSON bytes.
-    2. x-hmac-signature is computed over exact raw request body bytes using HMAC-SHA256.
-    3. Orchestrator raw-body verification succeeds with 200 (not 401).
-    4. Tampered body or incorrect secret fails-closed with 401.
+    1. WUZAPI configured with WEBHOOK_FORMAT=form serializes webhook payload as application/x-www-form-urlencoded
+       using Go url.Values.Encode() (sorted key-value encoding).
+    2. x-hmac-signature is computed over exact raw request body bytes (formData.Encode()) using HMAC-SHA256.
+    3. Orchestrator raw-body verification succeeds with 200 OK (not 401).
+    4. Form payload (jsonData, instanceName, userID, token) is parsed correctly, extracting the inner WhatsApp event.
+    5. Tampered body or incorrect secret fails-closed with 401.
     """
     secret = "wuzapi_webhook_secret_32bytes_min_len"
     settings = get_settings()
     monkeypatch.setattr(settings, "wuzapi_webhook_secret", secret)
 
-    payload = {
-        "event": "Message",
-        "instance": "inst-json-contract-test",
-        "data": {
-            "id": "msg-json-contract-1",
-            "sender": "5511988887777@s.whatsapp.net",
-            "message": {"conversation": "Valid JSON HMAC test"},
-        },
+    synthetic_inner_event = {
+        "event": {
+            "Info": {
+                "ID": "wuzapi-real-msg-form-101",
+                "Sender": "5511988887777@s.whatsapp.net",
+                "Chat": "5511988887777@s.whatsapp.net",
+                "IsFromMe": False,
+                "Timestamp": "2026-08-31T22:37:35Z",
+            },
+            "Message": {
+                "conversation": "Real WUZAPI form payload text",
+            },
+            "Type": "Message",
+        }
     }
 
-    # WUZAPI in WEBHOOK_FORMAT=json sends raw jsonBody
-    raw_body = json.dumps(payload).encode("utf-8")
-    valid_sig = hmac.new(secret.encode("utf-8"), raw_body, hashlib.sha256).hexdigest()
+    # In WUZAPI v1.0.8 (helpers.go), callHookWithHmac prepares payload map[string]string:
+    # payload["jsonData"] = json_string
+    # payload["instanceName"] = "inst-form-contract-test"
+    # payload["userID"] = "3c9da70f424ed5329f169e9937a563fd"
+    # payload["token"] = "test_wuzapi_token"
+    raw_payload_fields = {
+        "jsonData": json.dumps(synthetic_inner_event),
+        "instanceName": "inst-form-contract-test",
+        "userID": "3c9da70f424ed5329f169e9937a563fd",
+        "token": "test_wuzapi_token",
+    }
+
+    # Go url.Values.Encode() sorts keys alphabetically and percent-escapes values
+    sorted_items = sorted(raw_payload_fields.items(), key=lambda kv: kv[0])
+    encoded_form_str = urllib.parse.urlencode(sorted_items)
+    raw_body_bytes = encoded_form_str.encode("utf-8")
+
+    # WUZAPI signs []byte(formData.Encode())
+    valid_sig = hmac.new(secret.encode("utf-8"), raw_body_bytes, hashlib.sha256).hexdigest()
 
     with TestClient(app) as client:
-        # Success case: correct raw body + valid HMAC-SHA256 signature -> 200 OK
+        # Success case: real form URL-encoded body + valid HMAC-SHA256 signature -> 200 OK
         resp = client.post(
             "/webhook",
-            content=raw_body,
-            headers={"Content-Type": "application/json", "x-hmac-signature": valid_sig},
+            content=raw_body_bytes,
+            headers={
+                "Content-Type": "application/x-www-form-urlencoded",
+                "x-hmac-signature": valid_sig,
+            },
         )
         assert resp.status_code == 200
+        # Reaches identity resolution with the instance from payload
         assert resp.json().get("detail") == "instance_not_found"
 
-        # Tampered body bytes -> 401
-        tampered_body = raw_body + b" "
+        # Tampered form body bytes -> 401
+        tampered_body = raw_body_bytes + b"&tampered=1"
         resp_tampered = client.post(
             "/webhook",
             content=tampered_body,
-            headers={"Content-Type": "application/json", "x-hmac-signature": valid_sig},
+            headers={
+                "Content-Type": "application/x-www-form-urlencoded",
+                "x-hmac-signature": valid_sig,
+            },
         )
         assert resp_tampered.status_code == 401
         assert resp_tampered.json().get("detail") == "Invalid webhook signature"
@@ -1831,8 +1863,11 @@ def test_wuzapi_json_webhook_format_raw_body_hmac_compatibility(monkeypatch, tes
         # Invalid secret/sig -> 401
         resp_invalid_sig = client.post(
             "/webhook",
-            content=raw_body,
-            headers={"Content-Type": "application/json", "x-hmac-signature": "bad" * 16},
+            content=raw_body_bytes,
+            headers={
+                "Content-Type": "application/x-www-form-urlencoded",
+                "x-hmac-signature": "bad" * 16,
+            },
         )
         assert resp_invalid_sig.status_code == 401
         assert resp_invalid_sig.json().get("detail") == "Invalid webhook signature"

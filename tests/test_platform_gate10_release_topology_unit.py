@@ -75,7 +75,7 @@ def test_release_compose_is_private_and_hardened() -> None:
     assert "WUZAPI_GLOBAL_ENCRYPTION_KEY" in text
     assert "WUZAPI_GLOBAL_HMAC_KEY: ${WUZAPI_WEBHOOK_SECRET:?WUZAPI_WEBHOOK_SECRET is required}" in text
     assert "${WUZAPI_GLOBAL_HMAC_KEY" not in text
-    assert "WEBHOOK_FORMAT: json" in text
+    assert "WEBHOOK_FORMAT: form" in text
 
 
 def test_dockerfile_uses_immutable_multistage_nonroot_runtime() -> None:
@@ -233,7 +233,7 @@ def test_wuzapi_hmac_single_source_and_env_contract_count() -> None:
         assert "${WUZAPI_GLOBAL_HMAC_KEY" not in text
         assert "WUZAPI_GLOBAL_ENCRYPTION_KEY: ${WUZAPI_GLOBAL_ENCRYPTION_KEY:?WUZAPI_GLOBAL_ENCRYPTION_KEY is required}" in text
         assert "WUZAPI_TOKEN: ${WUZAPI_TOKEN:?WUZAPI_TOKEN is required}" in text
-        assert "WEBHOOK_FORMAT: json" in text
+        assert "WEBHOOK_FORMAT: form" in text
 
 
 def test_dokploy_tls_provisioner_unpacks_and_validates(tmp_path: Path) -> None:
