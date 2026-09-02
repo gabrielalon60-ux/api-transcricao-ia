@@ -29,6 +29,9 @@ from orchestrator import fifo_worker, main as orchestrator_main
 from orchestrator.config import get_settings
 from orchestrator.fifo_worker import WorkerClaimTracker
 from orchestrator.services.business_rules_evaluator import BusinessRulesEvaluatorService
+from orchestrator.services.classification_notification_service import (
+    run_classification_notification_iteration,
+)
 from orchestrator.services.extraction_dispatcher import (
     ExtractionDispatcher,
     claim_next_received_item_for_extraction,
@@ -345,6 +348,26 @@ def process_next_business(engine, worker: str = "gate8") -> str | None:
         return item.id
 
 
+def process_next_classification(engine, worker: str = "classification-e2e") -> str | None:
+    with Session(engine) as db:
+        item = claim_next_ready_item(db, worker)
+        if item is None:
+            return None
+        validating = transition_active_to_validating(db, item.id, worker)
+        assert validating is not None
+        tracker = WorkerClaimTracker(worker)
+        tracker.add_claim(item.id)
+        fifo_worker._process_validating_item(
+            db,
+            validating,
+            worker,
+            BusinessRulesEvaluatorService([DF_ID]),
+            tracker,
+            persistence_enabled=False,
+        )
+        return item.id
+
+
 def resume_business(engine, item_id: str, worker: str = "gate8-resume") -> None:
     with Session(engine) as db:
         item = claim_next_resumable_validating_item(db, worker)
@@ -381,6 +404,58 @@ def writer_counts(writer_engine, item_id: str) -> tuple[int, int]:
             {"item": item_id},
         )
     return int(records or 0), int(ledger or 0)
+
+
+@pytest.mark.parametrize(
+    ("normalized", "direction", "movement"),
+    [
+        (expense_normalized(), "expense", "Pagamento"),
+        (income_normalized(), "income", "Recebimento"),
+    ],
+)
+def test_classification_only_validates_and_notifies_without_persistence(
+    engine,
+    writer_engine,
+    writer_client,
+    normalized,
+    direction,
+    movement,
+) -> None:
+    context = create_context(engine, writer_engine)
+    item_id, _ = ingest_and_extract(engine, context, normalized)
+    before = writer_client.write_calls
+    assert process_next_classification(engine) == item_id
+    assert writer_client.write_calls == before
+
+    with Session(engine) as db:
+        item = db.get(ProcessingItem, item_id)
+        assert item is not None
+        assert item.status == "VALIDATED"
+        assert item.direction == direction
+        assert item.enterprise_id == context.enterprise_id
+        assert item.enterprise_display_name == "Empresa Gate 8"
+        persistence_operations = db.scalar(
+            select(func.count(Execution.id)).where(
+                Execution.processing_item_id == item_id,
+                Execution.operation.like("PERSISTENCE_%"),
+            )
+        )
+        assert persistence_operations == 0
+    assert writer_counts(writer_engine, item_id) == (0, 0)
+
+    sent: list[str] = []
+
+    def sender(_phone: str, message: str, _outbound: str) -> bool:
+        sent.append(message)
+        return True
+
+    factory = sessionmaker(bind=engine, expire_on_commit=False)
+    assert run_classification_notification_iteration(factory, sender) is True
+    assert run_classification_notification_iteration(factory, sender) is False
+    assert len(sent) == 1
+    assert "Empreendimento: Empresa Gate 8" in sent[0]
+    assert f"Movimentação: {movement}" in sent[0]
+    assert "ainda não foi gravado" in sent[0]
 
 
 def test_g8_x01_pix_expense_commits_and_sends_one_success(

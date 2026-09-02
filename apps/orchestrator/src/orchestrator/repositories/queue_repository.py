@@ -9,6 +9,7 @@ from db.models import ConversationQueueCounter, Event, Organization, ProcessingI
 
 
 TERMINAL_STATUSES = (
+    "VALIDATED",
     "COMPLETED",
     "EXTRACTION_FAILED",
     "PERSISTENCE_FAILED",

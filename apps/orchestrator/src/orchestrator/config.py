@@ -62,6 +62,7 @@ class Settings(BaseSettings):
     persistence_max_dispatch_attempts: int = Field(default=5, gt=0)
     persistence_base_backoff_seconds: int = Field(default=5, gt=0)
     persistence_max_backoff_seconds: int = Field(default=300, gt=0)
+    business_persistence_enabled: bool = True
 
     # DF Holding CPF/CNPJ Identifiers (PRD RN-012 placeholders)
     # Normalized digit-only strings. Production replacement: G10-T01.

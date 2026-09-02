@@ -39,6 +39,25 @@ x-app: &app
     LOG_PII_HASH_KEY: ${LOG_PII_HASH_KEY:?LOG_PII_HASH_KEY is required}
   networks: [internal]
 
+x-orchestrator-env: &orchestrator-env
+  <<: *app-env
+  BOT_DF_URL: http://bot-df:8003
+  TRANSCRIPTION_URL: http://transcription:8001
+  TRANSCRIPTION_SERVICE_URL: http://transcription:8001
+  WUZAPI_BASE_URL: http://wuzapi:8080
+  WUZAPI_TOKEN: ${WUZAPI_TOKEN:?WUZAPI token is required}
+  ORCHESTRATOR_TO_BOT_TOKEN: ${ORCHESTRATOR_TO_BOT_TOKEN:?token is required}
+  BOT_TO_TRANSCRIPTION_TOKEN: ${BOT_TO_TRANSCRIPTION_TOKEN:?token is required}
+  ORCHESTRATOR_TO_WRITER_TOKEN: ${DB_WRITER_INTERNAL_TOKEN:?token is required}
+  DB_WRITER_URL: http://db-writer:8004
+  DF_HOLDING_IDENTIFIERS: ${DF_HOLDING_IDENTIFIERS:?identifier reference is required}
+  REGISTRATION_MAX_FAILED_ATTEMPTS: "5"
+  REGISTRATION_FAILURE_WINDOW_SECONDS: "3600"
+  REGISTRATION_BLOCK_SECONDS: "86400"
+  MAX_CONVERSATION_PENDING_ITEMS: "10"
+  MAX_ORGANIZATION_OUTSTANDING_ITEMS: "100"
+  MAX_ORGANIZATION_ACTIVE_ITEMS: "20"
+
 services:
   tls-provisioner:
     image: ${RELEASE_IMAGE:?immutable RELEASE_IMAGE is required}
@@ -149,24 +168,64 @@ services:
       platform-migrator:
         condition: service_completed_successfully
     command: [uvicorn, orchestrator.main:app, --host, 0.0.0.0, --port, "8002"]
+    environment: *orchestrator-env
+    networks: [internal, database]
+
+  extraction-worker:
+    <<: *app
+    depends_on:
+      platform-db:
+        condition: service_healthy
+      platform-migrator:
+        condition: service_completed_successfully
+      transcription:
+        condition: service_started
+      wuzapi:
+        condition: service_started
+    command:
+      - python
+      - -m
+      - orchestrator.extraction_worker
+      - "1"
+    environment: *orchestrator-env
+    networks: [internal, database]
+
+  classification-worker:
+    <<: *app
+    depends_on:
+      platform-db:
+        condition: service_healthy
+      platform-migrator:
+        condition: service_completed_successfully
+      db-writer:
+        condition: service_started
+      wuzapi:
+        condition: service_started
+    command:
+      - python
+      - -m
+      - orchestrator.fifo_worker
+      - classification-1
     environment:
-      <<: *app-env
-      BOT_DF_URL: http://bot-df:8003
-      TRANSCRIPTION_URL: http://transcription:8001
-      WUZAPI_BASE_URL: http://wuzapi:8080
-      WUZAPI_TOKEN: ${WUZAPI_TOKEN:?WUZAPI token is required}
-      ORCHESTRATOR_TO_BOT_TOKEN: ${ORCHESTRATOR_TO_BOT_TOKEN:?token is required}
-      BOT_TO_TRANSCRIPTION_TOKEN: ${BOT_TO_TRANSCRIPTION_TOKEN:?token is required}
-      TRANSCRIPTION_SERVICE_URL: http://transcription:8001
-      ORCHESTRATOR_TO_WRITER_TOKEN: ${DB_WRITER_INTERNAL_TOKEN:?token is required}
-      DB_WRITER_URL: http://db-writer:8004
-      DF_HOLDING_IDENTIFIERS: ${DF_HOLDING_IDENTIFIERS:?identifier reference is required}
-      REGISTRATION_MAX_FAILED_ATTEMPTS: "5"
-      REGISTRATION_FAILURE_WINDOW_SECONDS: "3600"
-      REGISTRATION_BLOCK_SECONDS: "86400"
-      MAX_CONVERSATION_PENDING_ITEMS: "10"
-      MAX_ORGANIZATION_OUTSTANDING_ITEMS: "100"
-      MAX_ORGANIZATION_ACTIVE_ITEMS: "20"
+      <<: *orchestrator-env
+      BUSINESS_PERSISTENCE_ENABLED: "false"
+    networks: [internal, database]
+
+  classification-notification-worker:
+    <<: *app
+    depends_on:
+      platform-db:
+        condition: service_healthy
+      platform-migrator:
+        condition: service_completed_successfully
+      wuzapi:
+        condition: service_started
+    command:
+      - python
+      - -m
+      - orchestrator.classification_notification_worker
+      - "1"
+    environment: *orchestrator-env
     networks: [internal, database]
 
   transcription:
@@ -229,7 +288,9 @@ services:
     volumes:
       - wuzapi-data:/app/dbdata
     read_only: true
-    tmpfs: [/tmp:size=64m]
+    tmpfs:
+      - /tmp:size=64m
+      - /app/files:size=128m
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
 

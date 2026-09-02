@@ -31,8 +31,17 @@ def materialize_persistent_enterprise_binding(
     item: ProcessingItem,
     client: DBWriterClient,
     correlation_id: str,
+    *,
+    require_available: bool = False,
 ) -> Optional[str]:
-    if item.enterprise_id:
+    rows = client.list_enterprises(correlation_id)
+    available = {row["id"]: row["display_name"] for row in rows}
+    if item.enterprise_id and item.enterprise_id in available:
+        item.enterprise_display_name = available[item.enterprise_id]
+        db.commit()
+        db.refresh(item)
+        return item.enterprise_id
+    if item.enterprise_id and not require_available:
         return item.enterprise_id
     binding = (
         db.query(WhatsappChatEnterpriseBinding)
@@ -45,10 +54,10 @@ def materialize_persistent_enterprise_binding(
     )
     if binding is None:
         return None
-    available_ids = {row["id"] for row in client.list_enterprises(correlation_id)}
-    if binding.enterprise_id not in available_ids:
+    if binding.enterprise_id not in available:
         return None
     item.enterprise_id = binding.enterprise_id
+    item.enterprise_display_name = available[binding.enterprise_id]
     db.commit()
     db.refresh(item)
     return item.enterprise_id

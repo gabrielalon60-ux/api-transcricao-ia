@@ -135,6 +135,7 @@ def test_nonterminal_and_ambiguous_states_are_ineligible() -> None:
         "EXTRACTING",
         "EXTRACTED",
         "READY",
+        "VALIDATED",
         "ACTIVE",
         "VALIDATING",
         "WAITING_USER_INPUT",

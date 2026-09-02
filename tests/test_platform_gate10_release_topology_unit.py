@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import os
 import subprocess
 import sys
@@ -217,6 +218,49 @@ def test_dokploy_compose_is_private_hardened_and_uses_named_volumes() -> None:
     assert "--overwrite" in text
 
 
+def test_extraction_worker_and_wuzapi_media_tmpfs_release_topology() -> None:
+    for compose_name in ("compose.release.yml", "compose.dokploy.yml"):
+        text = (ROOT / "deploy" / compose_name).read_text(encoding="utf-8")
+        worker = text.split("  extraction-worker:\n", 1)[1].split(
+            "\n  classification-worker:\n", 1
+        )[0]
+
+        assert "x-orchestrator-env: &orchestrator-env" in text
+        assert text.count("environment: *orchestrator-env") == 3
+        assert "<<: *app" in worker
+        assert "condition: service_healthy" in worker
+        assert "condition: service_completed_successfully" in worker
+        assert worker.count("condition: service_started") == 2
+        assert "orchestrator.extraction_worker" in worker
+        assert '- "1"' in worker
+        assert "networks: [internal, database]" in worker
+        assert "ports:" not in worker
+        assert "egress" not in worker
+        assert "fifo_worker" not in worker
+        assert "/app/files:size=128m" in text
+
+        classification = text.split("  classification-worker:\n", 1)[1].split(
+            "\n  classification-notification-worker:\n", 1
+        )[0]
+        notifier = text.split(
+            "  classification-notification-worker:\n", 1
+        )[1].split("\n  transcription:\n", 1)[0]
+        for service in (classification, notifier):
+            assert "<<: *app" in service
+            assert "networks: [internal, database]" in service
+            assert "ports:" not in service
+            assert "egress" not in service
+        assert 'BUSINESS_PERSISTENCE_ENABLED: "false"' in classification
+        assert "orchestrator.fifo_worker" in classification
+        assert "orchestrator.classification_notification_worker" in notifier
+        if compose_name == "compose.release.yml":
+            assert "profiles: [staging-classification]" in classification
+            assert "profiles: [staging-classification]" in notifier
+        else:
+            assert "profiles:" not in classification
+            assert "profiles:" not in notifier
+
+
 def test_wuzapi_hmac_single_source_and_env_contract_count() -> None:
     module = _load_preflight()
     assert len(module.DOKPLOY_REQUIRED) == 25
@@ -378,6 +422,61 @@ def test_dokploy_compose_renders_with_synthetic_values() -> None:
         check=False,
     )
     assert result.returncode == 0, result.stderr
+
+
+def test_extraction_worker_resolves_hardening_and_environment() -> None:
+    environment = os.environ.copy()
+    environment.update(_release_env())
+
+    for compose_name in ("compose.release.yml", "compose.dokploy.yml"):
+        command = [
+            "docker",
+            "compose",
+            "-f",
+            str(ROOT / "deploy" / compose_name),
+        ]
+        if compose_name == "compose.release.yml":
+            command.extend(["--profile", "staging-classification"])
+        command.extend(["config", "--format", "json"])
+        result = subprocess.run(
+            command,
+            cwd=ROOT,
+            env=environment,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+        assert result.returncode == 0, result.stderr
+
+        services = json.loads(result.stdout)["services"]
+        worker = services["extraction-worker"]
+        orchestrator = services["orchestrator"]
+        assert worker["image"] == environment["RELEASE_IMAGE"]
+        assert worker["restart"] == "unless-stopped"
+        assert worker["read_only"] is True
+        assert worker["cap_drop"] == ["ALL"]
+        assert worker["security_opt"] == ["no-new-privileges:true"]
+        assert worker["user"] == "10001:10001"
+        assert worker["environment"] == orchestrator["environment"]
+        assert set(worker["networks"]) == {"internal", "database"}
+        assert "ports" not in worker
+        assert services["wuzapi"]["tmpfs"] == ["/tmp:size=64m", "/app/files:size=128m"]
+
+        classification = services["classification-worker"]
+        notifier = services["classification-notification-worker"]
+        expected_environment = dict(orchestrator["environment"])
+        expected_environment["BUSINESS_PERSISTENCE_ENABLED"] = "false"
+        assert classification["environment"] == expected_environment
+        assert classification["restart"] == "unless-stopped"
+        assert classification["read_only"] is True
+        assert set(classification["networks"]) == {"internal", "database"}
+        assert "ports" not in classification
+        assert notifier["environment"] == orchestrator["environment"]
+        assert notifier["restart"] == "unless-stopped"
+        assert notifier["read_only"] is True
+        assert set(notifier["networks"]) == {"internal", "database"}
+        assert "ports" not in notifier
 
 
 def test_dokploy_compose_matches_fresh_renderer_output() -> None:

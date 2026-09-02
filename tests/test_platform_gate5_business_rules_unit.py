@@ -643,8 +643,8 @@ class TestDateResolution:
         assert result.date_source == "MESSAGE_TIMESTAMP"
         assert result.document_date_str is None
 
-    def test_invalid_format_fallback(self, evaluator: BusinessRulesEvaluatorService) -> None:
-        """Non-ISO date string -> MESSAGE_TIMESTAMP fallback."""
+    def test_pt_br_document_date(self, evaluator: BusinessRulesEvaluatorService) -> None:
+        """Extraction-native PT-BR date is normalized as a document date."""
         result = evaluator.evaluate(
             amount=Decimal("100.00"),
             document_date="01/08/2026",
@@ -652,7 +652,19 @@ class TestDateResolution:
             payer_identifier=CNPJ_1_FORMATTED,
             receiver_identifier=EXTERNAL_CNPJ,
         )
+        assert result.date_source == "DOCUMENT"
+        assert result.document_date_str == "2026-08-01"
+
+    def test_invalid_format_fallback(self, evaluator: BusinessRulesEvaluatorService) -> None:
+        result = evaluator.evaluate(
+            amount=Decimal("100.00"),
+            document_date="data-invalida",
+            message_received_at=MSG_TIMESTAMP,
+            payer_identifier=CNPJ_1_FORMATTED,
+            receiver_identifier=EXTERNAL_CNPJ,
+        )
         assert result.date_source == "MESSAGE_TIMESTAMP"
+        assert result.document_date_str is None
 
     def test_document_date_never_shifts_calendar_day(self, evaluator: BusinessRulesEvaluatorService) -> None:
         """DOCUMENT date must never shift to previous/next calendar day in America/Sao_Paulo."""

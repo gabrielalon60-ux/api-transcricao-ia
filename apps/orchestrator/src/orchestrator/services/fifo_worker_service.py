@@ -41,7 +41,7 @@ TERMINAL_STATES = (
     "CANCELLED",
 )
 
-FIFO_TERMINAL_STATES = TERMINAL_STATES + ("IGNORED",)
+FIFO_TERMINAL_STATES = TERMINAL_STATES + ("IGNORED", "VALIDATED")
 
 BLOCKING_STATES = (
     "ACTIVE",
@@ -539,6 +539,8 @@ def evaluate_and_persist_validating_item(
     item_id: str,
     worker_id: str,
     evaluator: BusinessRulesEvaluatorService,
+    *,
+    require_complete_classification: bool = False,
 ) -> tuple[ProcessingItem, EffectiveFinancialDecision]:
     """Evaluates a worker-owned VALIDATING item and persists only effective financial facts."""
     full_worker_id = _normalize_worker_id(worker_id)
@@ -590,9 +592,9 @@ def evaluate_and_persist_validating_item(
             if effective_direction == "ambiguous"
             else "UNKNOWN_DIRECTION"
         )
-    # Gate 7 expense-only guard: once income is known, no destination-only
-    # facts (amount/enterprise) may be requested.
-    if effective_direction != "income" and (
+    # The legacy persistence workflow ignores income. Classification-only mode
+    # still needs an amount so it can return a complete, non-persistence summary.
+    if (require_complete_classification or effective_direction != "income") and (
         effective_amount is None or effective_amount <= 0
     ):
         unresolved["transaction_amount"] = (
@@ -628,6 +630,76 @@ def evaluate_and_persist_validating_item(
     db.commit()
     db.refresh(item)
     return item, decision
+
+
+def transition_validating_to_validated(
+    db: Session,
+    item_id: str,
+    worker_id: str,
+) -> Optional[ProcessingItem]:
+    """Complete classification without authorizing financial persistence."""
+    full_worker_id = _normalize_worker_id(worker_id)
+    existing = (
+        db.query(ProcessingItem)
+        .filter(
+            ProcessingItem.id == item_id,
+            ProcessingItem.status == "VALIDATED",
+        )
+        .first()
+    )
+    if existing is not None:
+        return existing
+
+    item = (
+        db.query(ProcessingItem)
+        .filter(
+            ProcessingItem.id == item_id,
+            ProcessingItem.status == "VALIDATING",
+            ProcessingItem.claimed_by == full_worker_id,
+            ProcessingItem.lease_expires_at > sa.func.now(),
+            ProcessingItem.direction.in_(("income", "expense")),
+            ProcessingItem.amount.isnot(None),
+            ProcessingItem.amount > 0,
+            ProcessingItem.transaction_date.isnot(None),
+            ProcessingItem.enterprise_id.isnot(None),
+            ProcessingItem.enterprise_display_name.isnot(None),
+        )
+        .with_for_update()
+        .first()
+    )
+    if item is None:
+        return None
+
+    item.status = "VALIDATED"
+    item.question_type = None
+    item.claimed_by = None
+    item.heartbeat_at = None
+    item.lease_expires_at = None
+
+    now = datetime.now(timezone.utc)
+    checkpoint_key = f"{item.id}:BUSINESS_CLASSIFICATION_COMPLETED"
+    if (
+        not db.query(Execution.id)
+        .filter(Execution.operation_idempotency_key == checkpoint_key)
+        .first()
+    ):
+        db.add(
+            Execution(
+                processing_item_id=item.id,
+                event_id=item.event_id,
+                correlation_id=item.correlation_id,
+                component="BOT_DF",
+                operation="BUSINESS_CLASSIFICATION_COMPLETED",
+                operation_idempotency_key=checkpoint_key,
+                status="SUCCESS",
+                attempt=max(1, item.attempt_count),
+                started_at=now,
+                completed_at=now,
+            )
+        )
+    db.commit()
+    db.refresh(item)
+    return item
 
 
 def ignore_income_out_of_scope(

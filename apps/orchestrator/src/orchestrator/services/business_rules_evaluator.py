@@ -93,7 +93,7 @@ def normalize_digits(value: Optional[str]) -> Optional[str]:
 # --- Date Resolution ---
 
 def _parse_iso_date(date_str: Optional[str]) -> Optional[date]:
-    """Attempts to parse an ISO YYYY-MM-DD date string.
+    """Attempts to parse an ISO or extraction-native PT-BR date string.
 
     Returns None if the string is None, empty, or not a valid calendar date.
     """
@@ -102,7 +102,10 @@ def _parse_iso_date(date_str: Optional[str]) -> Optional[date]:
     try:
         return date.fromisoformat(date_str.strip())
     except (ValueError, TypeError):
-        return None
+        try:
+            return datetime.strptime(date_str.strip(), "%d/%m/%Y").date()
+        except (ValueError, TypeError):
+            return None
 
 
 def resolve_transaction_date(

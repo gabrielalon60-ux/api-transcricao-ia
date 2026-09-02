@@ -275,6 +275,9 @@ class ProcessingItem(Base):
     date_source: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     direction: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     enterprise_id: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    enterprise_display_name: Mapped[Optional[str]] = mapped_column(
+        String(255), nullable=True
+    )
 
     # Interactive State Fields
     question_type: Mapped[Optional[str]] = mapped_column(String, nullable=True)
@@ -362,7 +365,7 @@ class ProcessingItem(Base):
             name="ck_processing_items_persistence_attempt_count_non_negative",
         ),
         sa.CheckConstraint(
-            "status IN ('RECEIVED', 'EXTRACTING', 'EXTRACTED', 'READY', 'ACTIVE', 'VALIDATING', 'WAITING_USER_INPUT', 'PERSISTING', 'PERSIST_RETRYABLE', 'PERSIST_OUTCOME_UNKNOWN', 'COMPLETED', 'EXTRACTION_FAILED', 'PERSISTENCE_FAILED', 'FAILED', 'EXPIRED', 'CANCELLED', 'IGNORED')",
+            "status IN ('RECEIVED', 'EXTRACTING', 'EXTRACTED', 'READY', 'ACTIVE', 'VALIDATING', 'WAITING_USER_INPUT', 'VALIDATED', 'PERSISTING', 'PERSIST_RETRYABLE', 'PERSIST_OUTCOME_UNKNOWN', 'COMPLETED', 'EXTRACTION_FAILED', 'PERSISTENCE_FAILED', 'FAILED', 'EXPIRED', 'CANCELLED', 'IGNORED')",
             name="ck_processing_items_status_valid",
         ),
         sa.CheckConstraint(
@@ -394,7 +397,7 @@ class ProcessingItem(Base):
             "instance_id",
             "user_id",
             postgresql_where=sa.text(
-                "status NOT IN ('COMPLETED', 'EXTRACTION_FAILED', 'PERSISTENCE_FAILED', 'FAILED', 'EXPIRED', 'CANCELLED', 'IGNORED')"
+                "status NOT IN ('VALIDATED', 'COMPLETED', 'EXTRACTION_FAILED', 'PERSISTENCE_FAILED', 'FAILED', 'EXPIRED', 'CANCELLED', 'IGNORED')"
             ),
         ),
         sa.Index(

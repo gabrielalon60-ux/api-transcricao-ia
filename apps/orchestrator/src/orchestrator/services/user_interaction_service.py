@@ -39,10 +39,10 @@ VALID_QUESTION_TYPES = {
     "enterprise_selection",
 }
 
-DIRECTION_PROMPT = """Este lançamento é uma entrada ou uma despesa?
+DIRECTION_PROMPT = """Este comprovante representa:
 
-1 - Entrada
-2 - Despesa
+1 - Recebimento (entrada de valor)
+2 - Pagamento (saída de valor)
 
 Responda com 1 ou 2."""
 
@@ -60,9 +60,26 @@ QUESTION_PROMPTS = {
 def parse_direction_answer(text: str) -> Optional[str]:
     """Parses transaction direction answer into 'income' or 'expense'."""
     normalized = text.strip().lower()
-    if normalized in {"1", "entrada", "receita", "income", "credito", "crédito"}:
+    if normalized in {
+        "1",
+        "entrada",
+        "receita",
+        "recebimento",
+        "income",
+        "credito",
+        "crédito",
+    }:
         return "income"
-    if normalized in {"2", "saida", "saída", "despesa", "expense", "debito", "débito"}:
+    if normalized in {
+        "2",
+        "saida",
+        "saída",
+        "despesa",
+        "pagamento",
+        "expense",
+        "debito",
+        "débito",
+    }:
         return "expense"
     return None
 
@@ -871,6 +888,11 @@ def apply_user_answer(
             item.document_type = str(parsed_value)
         elif interaction.question_type == "enterprise_selection":
             item.enterprise_id = str(parsed_value)
+            if isinstance(selected, dict):
+                display_name = selected.get("display_name")
+                item.enterprise_display_name = (
+                    str(display_name) if display_name else None
+                )
 
         item.status = "VALIDATING"
         item.waiting_since = None

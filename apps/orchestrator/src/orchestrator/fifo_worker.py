@@ -18,6 +18,7 @@ from orchestrator.services.fifo_worker_service import (
     evaluate_and_persist_validating_item,
     defer_validating_for_enterprise_command,
     ignore_income_out_of_scope,
+    transition_validating_to_validated,
     transition_active_to_validating,
     POLL_INTERVAL_SECONDS,
 )
@@ -249,6 +250,8 @@ def _process_validating_item(
     worker_id: str,
     evaluator: BusinessRulesEvaluatorService,
     claim_tracker: WorkerClaimTracker,
+    *,
+    persistence_enabled: bool = True,
 ) -> None:
     # Preserve the frozen Phase 4E mocked-session supervision seam. Production
     # always supplies a real SQLAlchemy Session and follows the Gate 6 path.
@@ -267,9 +270,10 @@ def _process_validating_item(
         item.id,
         worker_id,
         evaluator,
+        require_complete_classification=not persistence_enabled,
     )
 
-    if decision.direction == "income":
+    if persistence_enabled and decision.direction == "income":
         ignored = ignore_income_out_of_scope(db, evaluated_item.id, worker_id)
         if ignored is not None:
             claim_tracker.remove_claim(evaluated_item.id)
@@ -300,7 +304,10 @@ def _process_validating_item(
             claim_tracker.remove_claim(evaluated_item.id)
         return
 
-    if decision.direction == "expense" and not evaluated_item.enterprise_id:
+    needs_enterprise = not evaluated_item.enterprise_id or not (
+        evaluated_item.enterprise_display_name or ""
+    ).strip()
+    if decision.direction in {"expense", "income"} and needs_enterprise:
         writer_client = DBWriterClient()
         if (
             materialize_persistent_enterprise_binding(
@@ -308,6 +315,7 @@ def _process_validating_item(
                 evaluated_item,
                 writer_client,
                 evaluated_item.correlation_id,
+                require_available=not persistence_enabled,
             )
             is None
         ):
@@ -342,6 +350,21 @@ def _process_validating_item(
             if interaction.status in ("WAITING", "OUTBOUND_OUTCOME_UNKNOWN"):
                 claim_tracker.remove_claim(evaluated_item.id)
             return
+
+    if not persistence_enabled:
+        validated = transition_validating_to_validated(
+            db,
+            evaluated_item.id,
+            worker_id,
+        )
+        if validated is None:
+            logger.error(
+                "Classification-only item %s is incomplete and was not finalized.",
+                evaluated_item.id,
+            )
+            return
+        claim_tracker.remove_claim(evaluated_item.id)
+        return
 
     if not decision.is_eligible_for_auto_write:
         logger.error(
@@ -400,6 +423,7 @@ def run_fifo_worker_loop(
 
     settings = get_settings()
     settings.validate_environment()
+    persistence_enabled = settings.business_persistence_enabled
     engine = create_engine(settings.database_url)
     SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
@@ -414,16 +438,18 @@ def run_fifo_worker_loop(
     with SessionLocal() as db:
         claim_tracker.startup_recover_claims(db)
 
-    final_notification_thread = _start_final_notification_thread(
-        SessionLocal,
-        final_notification_shutdown_event,
-    )
+    final_notification_thread = None
+    if persistence_enabled:
+        final_notification_thread = _start_final_notification_thread(
+            SessionLocal,
+            final_notification_shutdown_event,
+        )
 
     last_sweeper_run = 0.0
     last_heartbeat_run = 0.0
 
     while running:
-        if not final_notification_thread.is_alive():
+        if final_notification_thread is not None and not final_notification_thread.is_alive():
             logger.error("Final notification loop stopped; restarting it safely.")
             final_notification_thread = _start_final_notification_thread(
                 SessionLocal,
@@ -450,14 +476,22 @@ def run_fifo_worker_loop(
                 with SessionLocal() as db:
                     recovered_active = recover_stale_active_items(db)
                     recovered_val = recover_stale_validating_items(db)
-                    recovered_pers = recover_stale_persistence_items(db)
+                    recovered_pers = (
+                        recover_stale_persistence_items(db)
+                        if persistence_enabled
+                        else 0
+                    )
                     expired_waiting = expire_waiting_user_input_items(db)
                     expired_commands = expire_enterprise_command_sessions(db)
                     recovered_commands = recover_reserved_enterprise_command_sessions(
                         db,
                         lambda session: _recover_enterprise_command_prompt(db, session),
                     )
-                    reconciled_persist = reconcile_persistence_outcomes(db)
+                    reconciled_persist = (
+                        reconcile_persistence_outcomes(db)
+                        if persistence_enabled
+                        else 0
+                    )
                     if (
                         recovered_active
                         or recovered_val
@@ -493,7 +527,12 @@ def run_fifo_worker_loop(
                     )
                     claim_tracker.add_claim(resumable.id)
                     _process_validating_item(
-                        db, resumable, worker_id, evaluator, claim_tracker
+                        db,
+                        resumable,
+                        worker_id,
+                        evaluator,
+                        claim_tracker,
+                        persistence_enabled=persistence_enabled,
                     )
                     continue
 
@@ -513,7 +552,12 @@ def run_fifo_worker_loop(
                             f"Worker {worker_id} transitioned item {claimed.id} to VALIDATING."
                         )
                         _process_validating_item(
-                            db, validating, worker_id, evaluator, claim_tracker
+                            db,
+                            validating,
+                            worker_id,
+                            evaluator,
+                            claim_tracker,
+                            persistence_enabled=persistence_enabled,
                         )
 
                 else:
@@ -522,8 +566,9 @@ def run_fifo_worker_loop(
             logger.error(f"Error in FIFO worker claim iteration: {exc}", exc_info=True)
             time.sleep(poll_interval)
 
-    final_notification_shutdown_event.set()
-    final_notification_thread.join(FINAL_NOTIFICATION_SHUTDOWN_JOIN_SECONDS)
+    if final_notification_thread is not None:
+        final_notification_shutdown_event.set()
+        final_notification_thread.join(FINAL_NOTIFICATION_SHUTDOWN_JOIN_SECONDS)
     logger.info(f"Bot DF FIFO Worker {worker_id} shutdown complete.")
 
 
