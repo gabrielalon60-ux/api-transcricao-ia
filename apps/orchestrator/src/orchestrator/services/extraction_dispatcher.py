@@ -21,6 +21,12 @@ MEDIA_DOWNLOAD_TIMEOUT_SECONDS = 30
 EXTRACTION_BACKOFF_INITIAL_SECONDS = 2
 EXTRACTION_BACKOFF_MAX_SECONDS = 30
 MAX_CONCURRENT_EXTRACTIONS_PER_SERVICE = 5
+SUPPORTED_DOCUMENT_TYPES = (
+    "invoice",
+    "pix_receipt",
+    "bank_receipt",
+    "commercial_document",
+)
 
 
 def claim_next_received_item_for_extraction(db: Session, dispatcher_id: str = "dispatcher-1") -> Optional[ProcessingItem]:
@@ -134,6 +140,12 @@ def apply_extraction_success(
         item.attempt_count = 0  # Unambiguous attempt counter reset at READY
     else:
         item.status = "EXTRACTION_FAILED"
+        if item.document_type not in SUPPORTED_DOCUMENT_TYPES:
+            item.error_code = "UNSUPPORTED_DOCUMENT"
+            item.error_message_sanitized = "UNSUPPORTED_DOCUMENT"
+        else:
+            item.error_code = "INVALID_EXTRACTION_RESULT"
+            item.error_message_sanitized = "INVALID_EXTRACTION_RESULT"
 
     db.commit()
     db.refresh(item)
@@ -198,8 +210,10 @@ def apply_extraction_failure(
 
 def validate_structural_readiness(item: ProcessingItem) -> bool:
     """Deterministic structural validation for EXTRACTED -> READY transition using exact Gate 3 types."""
-    valid_types = ("invoice", "pix_receipt", "bank_receipt", "commercial_document")
-    if not item.document_type or item.document_type.lower() not in valid_types:
+    if (
+        not item.document_type
+        or item.document_type.lower() not in SUPPORTED_DOCUMENT_TYPES
+    ):
         return False
     if not item.normalized_data or not isinstance(item.normalized_data, dict):
         return False

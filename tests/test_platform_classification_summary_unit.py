@@ -12,6 +12,7 @@ from orchestrator.services.classification_notification_service import (
     ACKNOWLEDGED_OPERATION,
     DISPATCHED_OPERATION,
     RESERVED_OPERATION,
+    UNSUPPORTED_DOCUMENT_MESSAGE,
     UNKNOWN_OPERATION,
     format_classification_summary,
     run_classification_notification_iteration,
@@ -40,6 +41,8 @@ def _seed_item(
     *,
     status: str = "VALIDATED",
     direction: str = "expense",
+    document_type: str = "bank_receipt",
+    error_code: str | None = None,
 ) -> str:
     now = datetime.now(UTC)
     with session_factory() as db:
@@ -82,6 +85,8 @@ def _seed_item(
             user_id=user.id,
             sequence=1,
             status=status,
+            document_type=document_type,
+            error_code=error_code,
             claimed_by="worker-classification-1" if status == "VALIDATING" else None,
             lease_expires_at=(
                 now + timedelta(minutes=5) if status == "VALIDATING" else None
@@ -219,3 +224,47 @@ def test_notification_failure_is_terminal_unknown(
         }
     assert UNKNOWN_OPERATION in operations
     assert ACKNOWLEDGED_OPERATION not in operations
+
+
+def test_unsupported_document_receives_one_instructional_notification(
+    session_factory: sessionmaker,
+) -> None:
+    item_id = _seed_item(
+        session_factory,
+        status="EXTRACTION_FAILED",
+        document_type="unknown",
+        error_code="UNSUPPORTED_DOCUMENT",
+    )
+    sent: list[tuple[str, str, str]] = []
+
+    def sender(phone: str, message: str, outbound_id: str) -> bool:
+        sent.append((phone, message, outbound_id))
+        return True
+
+    assert run_classification_notification_iteration(session_factory, sender) is True
+    assert run_classification_notification_iteration(session_factory, sender) is False
+    assert sent == [
+        (
+            "5511888888888",
+            UNSUPPORTED_DOCUMENT_MESSAGE,
+            f"classification_{item_id}_unsupported_document",
+        )
+    ]
+
+
+def test_historical_unclassified_failure_is_not_notified(
+    session_factory: sessionmaker,
+) -> None:
+    _seed_item(
+        session_factory,
+        status="EXTRACTION_FAILED",
+        document_type="unknown",
+        error_code=None,
+    )
+    assert (
+        run_classification_notification_iteration(
+            session_factory,
+            lambda *_args: True,
+        )
+        is False
+    )

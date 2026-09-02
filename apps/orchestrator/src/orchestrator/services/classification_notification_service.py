@@ -9,24 +9,32 @@ from decimal import Decimal
 from typing import Final
 
 from db.models import Execution, ProcessingItem, User
-from sqlalchemy import exists, select
+from sqlalchemy import exists, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, aliased
 
 from orchestrator.services.business_rules_evaluator import BUSINESS_TIMEZONE
 
 
-NOTIFICATION_TYPE: Final = "CLASSIFICATION_VALIDATED"
+VALIDATED_NOTIFICATION_TYPE: Final = "CLASSIFICATION_VALIDATED"
+UNSUPPORTED_DOCUMENT_NOTIFICATION_TYPE: Final = "UNSUPPORTED_DOCUMENT"
+NOTIFICATION_TYPE: Final = VALIDATED_NOTIFICATION_TYPE
 RESERVED_OPERATION: Final = "CLASSIFICATION_NOTIFICATION_RESERVED"
 DISPATCHED_OPERATION: Final = "CLASSIFICATION_NOTIFICATION_DISPATCHED"
 ACKNOWLEDGED_OPERATION: Final = "CLASSIFICATION_NOTIFICATION_ACKNOWLEDGED"
 UNKNOWN_OPERATION: Final = "CLASSIFICATION_NOTIFICATION_OUTCOME_UNKNOWN"
 POLL_INTERVAL_SECONDS: Final = 1.0
+UNSUPPORTED_DOCUMENT_MESSAGE: Final = (
+    "⚠️ Não consegui identificar um comprovante financeiro nesta imagem.\n\n"
+    "Envie uma foto nítida de um comprovante PIX, comprovante bancário, "
+    "nota fiscal ou documento comercial."
+)
 
 
 @dataclass(frozen=True)
 class ClassificationNotificationIntent:
     processing_item_id: str
+    notification_type: str
     phone_number: str
     message: str
     outbound_message_id: str
@@ -37,20 +45,41 @@ def _utc_now() -> datetime:
     return datetime.now(UTC)
 
 
-def _reservation_key(item_id: str) -> str:
-    return f"{item_id}:{RESERVED_OPERATION}:{NOTIFICATION_TYPE}"
+def _reservation_key(item_id: str, notification_type: str) -> str:
+    return f"{item_id}:{RESERVED_OPERATION}:{notification_type}"
 
 
-def _dispatch_key(item_id: str) -> str:
-    return f"{item_id}:{DISPATCHED_OPERATION}:{NOTIFICATION_TYPE}"
+def _dispatch_key(item_id: str, notification_type: str) -> str:
+    return f"{item_id}:{DISPATCHED_OPERATION}:{notification_type}"
 
 
-def _final_key(item_id: str) -> str:
-    return f"{item_id}:CLASSIFICATION_NOTIFICATION_FINAL:{NOTIFICATION_TYPE}"
+def _final_key(item_id: str, notification_type: str) -> str:
+    return f"{item_id}:CLASSIFICATION_NOTIFICATION_FINAL:{notification_type}"
 
 
-def _outbound_message_id(item_id: str) -> str:
-    return f"classification_{item_id}"
+def _outbound_message_id(item_id: str, notification_type: str) -> str:
+    if notification_type == VALIDATED_NOTIFICATION_TYPE:
+        return f"classification_{item_id}"
+    return f"classification_{item_id}_unsupported_document"
+
+
+def notification_type_for_item(item: ProcessingItem) -> str | None:
+    if item.status == "VALIDATED":
+        return VALIDATED_NOTIFICATION_TYPE
+    if (
+        item.status == "EXTRACTION_FAILED"
+        and item.error_code == "UNSUPPORTED_DOCUMENT"
+    ):
+        return UNSUPPORTED_DOCUMENT_NOTIFICATION_TYPE
+    return None
+
+
+def message_for_item(item: ProcessingItem, notification_type: str) -> str:
+    if notification_type == VALIDATED_NOTIFICATION_TYPE:
+        return format_classification_summary(item)
+    if notification_type == UNSUPPORTED_DOCUMENT_NOTIFICATION_TYPE:
+        return UNSUPPORTED_DOCUMENT_MESSAGE
+    raise ValueError("Unsupported classification notification type")
 
 
 def format_classification_summary(item: ProcessingItem) -> str:
@@ -96,7 +125,13 @@ def reserve_classification_notification(
     item = db.scalar(
         select(ProcessingItem)
         .where(
-            ProcessingItem.status == "VALIDATED",
+            or_(
+                ProcessingItem.status == "VALIDATED",
+                (
+                    (ProcessingItem.status == "EXTRACTION_FAILED")
+                    & (ProcessingItem.error_code == "UNSUPPORTED_DOCUMENT")
+                ),
+            ),
             ~exists().where(
                 prior.processing_item_id == ProcessingItem.id,
                 prior.operation.in_(
@@ -112,6 +147,10 @@ def reserve_classification_notification(
         db.rollback()
         return False
 
+    notification_type = notification_type_for_item(item)
+    if notification_type is None:
+        db.rollback()
+        return False
     current_time = now or _utc_now()
     try:
         with db.begin_nested():
@@ -122,7 +161,9 @@ def reserve_classification_notification(
                     correlation_id=item.correlation_id,
                     component="BOT_DF",
                     operation=RESERVED_OPERATION,
-                    operation_idempotency_key=_reservation_key(item.id),
+                    operation_idempotency_key=_reservation_key(
+                        item.id, notification_type
+                    ),
                     status="SUCCESS",
                     attempt=1,
                     started_at=current_time,
@@ -166,7 +207,11 @@ def claim_classification_notification(
         return None
 
     item = db.get(ProcessingItem, reservation.processing_item_id)
-    if item is None or item.status != "VALIDATED":
+    if item is None:
+        db.rollback()
+        return None
+    notification_type = notification_type_for_item(item)
+    if notification_type is None:
         db.rollback()
         return None
     user = db.get(User, item.user_id)
@@ -181,8 +226,8 @@ def claim_classification_notification(
         correlation_id=item.correlation_id,
         component="BOT_DF",
         operation=DISPATCHED_OPERATION,
-        operation_idempotency_key=_dispatch_key(item.id),
-        outbound_message_id=_outbound_message_id(item.id),
+        operation_idempotency_key=_dispatch_key(item.id, notification_type),
+        outbound_message_id=_outbound_message_id(item.id, notification_type),
         status="SUCCESS",
         effect_status="DISPATCHED",
         attempt=1,
@@ -198,8 +243,9 @@ def claim_classification_notification(
         return None
     intent = ClassificationNotificationIntent(
         processing_item_id=item.id,
+        notification_type=notification_type,
         phone_number=user.phone_number,
-        message=format_classification_summary(item),
+        message=message_for_item(item, notification_type),
         outbound_message_id=dispatch.outbound_message_id or "",
         dispatch_execution_id=dispatch.id,
     )
@@ -216,7 +262,7 @@ def finalize_classification_notification(
 ) -> bool:
     if db.scalar(
         select(exists().where(Execution.operation_idempotency_key == _final_key(
-            intent.processing_item_id
+            intent.processing_item_id, intent.notification_type
         )))
     ):
         db.rollback()
@@ -238,7 +284,7 @@ def finalize_classification_notification(
                         ACKNOWLEDGED_OPERATION if acknowledged else UNKNOWN_OPERATION
                     ),
                     operation_idempotency_key=_final_key(
-                        intent.processing_item_id
+                        intent.processing_item_id, intent.notification_type
                     ),
                     external_reference=intent.outbound_message_id,
                     status="SUCCESS" if acknowledged else "FAILED",

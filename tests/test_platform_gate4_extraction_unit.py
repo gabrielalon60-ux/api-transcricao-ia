@@ -136,6 +136,34 @@ def test_apply_extraction_success_empty_payload_rejected():
     assert mock_item.raw_extraction == {}
     assert mock_item.normalized_data == {}
     assert mock_item.status == "EXTRACTION_FAILED"
+    assert mock_item.error_code == "INVALID_EXTRACTION_RESULT"
+
+
+def test_apply_extraction_success_marks_unknown_document_explicitly():
+    from db.models import ProcessingItem
+
+    mock_db = MagicMock()
+    mock_item = MagicMock(spec=ProcessingItem)
+    mock_item.status = "EXTRACTING"
+    mock_db.query.return_value.filter.return_value.with_for_update.return_value.first.return_value = mock_item
+
+    result = apply_extraction_success(
+        mock_db,
+        "item-unknown",
+        None,
+        {
+            "document_type": "unknown",
+            "extraction": {},
+            "normalization": {},
+            "quality_flags": [],
+            "confidence": None,
+        },
+    )
+
+    assert result is mock_item
+    assert mock_item.status == "EXTRACTION_FAILED"
+    assert mock_item.error_code == "UNSUPPORTED_DOCUMENT"
+    assert mock_item.error_message_sanitized == "UNSUPPORTED_DOCUMENT"
 
 
 @pytest.mark.parametrize(
