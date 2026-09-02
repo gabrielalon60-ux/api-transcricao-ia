@@ -875,16 +875,6 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
             if ans.status == "APPLIED":
                 event.status = "ANSWER_APPLIED"
                 db.commit()
-                try:
-                    wuzapi = WuzapiClient()
-                    await wuzapi.send_text_message(
-                        phone_norm,
-                        "✅ Resposta recebida. Continuando processamento...",
-                    )
-                except WuzapiError as e:
-                    event.error_code = "WUZAPI_SEND_FAILED"
-                    event.error_message_sanitized = str(e)
-                    db.commit()
                 return {"status": "ok", "detail": "answer_applied"}
             else:
                 event.status = "ANSWER_REJECTED"

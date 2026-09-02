@@ -507,7 +507,7 @@ def test_real_webhook_duplicate_user_answer_has_one_applied_mutation(
         assert item is not None and str(item.amount) == "10.00"
         answers = db.query(UserAnswer).all()
         assert len(answers) == 1 and answers[0].status == "APPLIED"
-    assert len(sends) == 1
+    assert sends == []
 
 
 def test_real_webhook_duplicate_unsupported_text_has_no_duplicate_effect(
